@@ -58,14 +58,12 @@ impl Syslog {
 
         // structured_data - check that next string is "-" or "["
         let mut structured_data: Option<String> = None;
-        let mut message: Option<String> = None;
-
         let mut structured_data_chars = sd_and_msg.char_indices();
+        let mut message_idx = 2; // start after hyphen
         while let Some(item) = structured_data_chars.next() {
             match item {
                 (0,'-') => {
                     // No structured_data
-                    message = Some(sd_and_msg.get(2..).ok_or("No message.")?.trim().to_string());
                     break;
                 },
                 (0,'[') => {
@@ -76,15 +74,29 @@ impl Syslog {
                     Err("Invalid syslog format.")?
                 },
                 (idx,']') => {
-                    // include the '[' and ']' in structured_data
-                    structured_data = Some(sd_and_msg[..idx+1].to_string());
-                    message = Some(sd_and_msg.get(idx+1..).ok_or("No message.")?.trim().to_string());
-                    break;
+                    if let Some((_, '[')) = structured_data_chars.next() {
+                        // if there is more structured data, keep going
+                        continue;
+                    } else {
+                        // else, end of structured data
+                        // include the '[' and ']' in structured_data
+                        structured_data = Some(sd_and_msg[..idx+1].to_string());
+                        message_idx = idx+2;
+                        break;
+                    }
                 },
                 _ => {
                     continue;
                 },
             }
+        }
+
+        let mut message: Option<String> = None;
+
+        // check if there is a message
+        let rest = sd_and_msg.get(message_idx..);
+        if rest.is_some() {
+            message = Some(rest.ok_or("Invalid message.")?.trim().to_string());
         }
 
         Ok(Syslog {
@@ -210,6 +222,29 @@ mod tests {
             message_id: "ID47".to_owned(),
             structured_data: Some("[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"]".to_owned()),
             message: Some("BOMAn application event log entry...".to_owned()),
+        };
+
+        let actual = Syslog::from_str(input).expect("Could not parse input for syslog.");
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn parse_rfc5424_syslog_specs_example_4() {
+        // example 4 from https://tools.ietf.org/html/rfc5424
+
+        let input = "<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]";
+
+        let expected = Syslog {
+            priority: Priority { facility: 20, severity: 5 },
+            version: "1".to_owned(),
+            timestamp: "2003-10-11T22:14:15.003Z".to_owned(),
+            hostname: "mymachine.example.com".to_owned(),
+            app_name: "evntslog".to_owned(),
+            proc_id: "-".to_owned(),
+            message_id: "ID47".to_owned(),
+            structured_data: Some("[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]".to_owned()),
+            message: None,
         };
 
         let actual = Syslog::from_str(input).expect("Could not parse input for syslog.");
