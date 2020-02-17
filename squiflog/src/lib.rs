@@ -3,12 +3,12 @@ pub type Error = Box<dyn std::error::Error>;
 #[derive(Debug, Eq, PartialEq)]
 pub struct Syslog {
     priority: Priority,
-    version: String,
-    timestamp: String,
-    hostname: String,
-    app_name: String,
-    proc_id: String,
-    message_id: String,
+    version: i32,
+    timestamp: Option<String>,
+    hostname: Option<String>,
+    app_name: Option<String>,
+    proc_id: Option<String>,
+    message_id: Option<String>,
     structured_data: Option<String>,
     message: Option<String>,
 }
@@ -40,15 +40,30 @@ impl Syslog {
         let priority = priority.ok_or("Invalid syslog format.")?.parse::<usize>().map_err(Error::from)?;
         let priority = Priority::from_raw(priority);
 
-        let version = version.ok_or("Invalid syslog format. Invalid version.")?;
+        let version = version.ok_or("Invalid syslog format. Invalid version.")?.parse::<i32>().unwrap();
 
         // get remaining header items
 
-        let timestamp = items.next().ok_or("Missing timestamp.")?;
-        let hostname = items.next().ok_or("Missing hostname.")?;
-        let app_name = items.next().ok_or("Missing app_name.")?;
-        let proc_id = items.next().ok_or("Missing proc_id.")?;
-        let message_id = items.next().ok_or("Missing message_id.")?;
+        let mut timestamp = Some(items.next().ok_or("Missing timestamp.")?.to_string());
+        if timestamp == Some("-".to_string()) {
+            timestamp = None;
+        }
+        let mut hostname = Some(items.next().ok_or("Missing hostname.")?.to_string());
+        if hostname == Some("-".to_string()) {
+            hostname = None;
+        }
+        let mut app_name = Some(items.next().ok_or("Missing app_name.")?.to_string());
+        if app_name == Some("-".to_string()) {
+            app_name = None;
+        }
+        let mut proc_id = Some(items.next().ok_or("Missing app_name.")?.to_string());
+        if proc_id == Some("-".to_string()) {
+            proc_id = None;
+        }
+        let mut message_id = Some(items.next().ok_or("Missing message_id.")?.to_string());
+        if message_id == Some("-".to_string()) {
+            message_id = None;
+        }
 
         let sd_and_msg = items.next().ok_or("Missing structured data and/or message.")?;
 
@@ -101,12 +116,12 @@ impl Syslog {
 
         Ok(Syslog {
             priority,
-            version: version.to_owned(),
-            timestamp: timestamp.to_owned(),
-            hostname: hostname.to_owned(),
-            app_name: app_name.to_owned(),
-            proc_id: proc_id.to_owned(),
-            message_id: message_id.to_owned(),
+            version,
+            timestamp,
+            hostname,
+            app_name,
+            proc_id,
+            message_id,
             structured_data,
             message,
         })
@@ -139,12 +154,12 @@ mod tests {
 
         let expected = Syslog {
             priority: Priority { facility: 3, severity: 6 },
-            version: "1".to_owned(),
-            timestamp: "2020-02-13T00:51:39.527825Z".to_owned(),
-            hostname: "docker-desktop".to_owned(),
-            app_name: "8b1089798cf8".to_owned(),
-            proc_id: "1481".to_owned(),
-            message_id: "8b1089798cf8".to_owned(),
+            version: 1,
+            timestamp: Some("2020-02-13T00:51:39.527825Z".to_owned()),
+            hostname: Some("docker-desktop".to_owned()),
+            app_name: Some("8b1089798cf8".to_owned()),
+            proc_id: Some("1481".to_owned()),
+            message_id: Some("8b1089798cf8".to_owned()),
             structured_data: None,
             message: Some("hello world".to_owned()),
         };
@@ -170,12 +185,12 @@ mod tests {
 
         let expected = Syslog {
             priority: Priority { facility: 4, severity: 2 },
-            version: "1".to_owned(),
-            timestamp: "2003-10-11T22:14:15.003Z".to_owned(),
-            hostname: "mymachine.example.com".to_owned(),
-            app_name: "su".to_owned(),
-            proc_id: "-".to_owned(),
-            message_id: "ID47".to_owned(),
+            version: 1,
+            timestamp: Some("2003-10-11T22:14:15.003Z".to_owned()),
+            hostname: Some("mymachine.example.com".to_owned()),
+            app_name: Some("su".to_owned()),
+            proc_id: None,
+            message_id: Some("ID47".to_owned()),
             structured_data: None,
             message: Some("BOM’su root’ failed for lonvick on /dev/pts/8".to_owned()),
         };
@@ -192,12 +207,12 @@ mod tests {
 
         let expected = Syslog {
             priority: Priority { facility: 20, severity: 5 },
-            version: "1".to_owned(),
-            timestamp: "2003-08-24T05:14:15.000003-07:00".to_owned(),
-            hostname: "192.0.2.1".to_owned(),
-            app_name: "myproc".to_owned(),
-            proc_id: "8710".to_owned(),
-            message_id: "-".to_owned(),
+            version: 1,
+            timestamp: Some("2003-08-24T05:14:15.000003-07:00".to_owned()),
+            hostname: Some("192.0.2.1".to_owned()),
+            app_name: Some("myproc".to_owned()),
+            proc_id: Some("8710".to_owned()),
+            message_id: None,
             structured_data: None,
             message: Some("%% It's time to make the do-nuts.".to_owned()),
         };
@@ -214,12 +229,12 @@ mod tests {
 
         let expected = Syslog {
             priority: Priority { facility: 20, severity: 5 },
-            version: "1".to_owned(),
-            timestamp: "2003-10-11T22:14:15.003Z".to_owned(),
-            hostname: "mymachine.example.com".to_owned(),
-            app_name: "evntslog".to_owned(),
-            proc_id: "-".to_owned(),
-            message_id: "ID47".to_owned(),
+            version: 1,
+            timestamp: Some("2003-10-11T22:14:15.003Z".to_owned()),
+            hostname: Some("mymachine.example.com".to_owned()),
+            app_name: Some("evntslog".to_owned()),
+            proc_id: None,
+            message_id: Some("ID47".to_owned()),
             structured_data: Some("[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"]".to_owned()),
             message: Some("BOMAn application event log entry...".to_owned()),
         };
@@ -237,12 +252,12 @@ mod tests {
 
         let expected = Syslog {
             priority: Priority { facility: 20, severity: 5 },
-            version: "1".to_owned(),
-            timestamp: "2003-10-11T22:14:15.003Z".to_owned(),
-            hostname: "mymachine.example.com".to_owned(),
-            app_name: "evntslog".to_owned(),
-            proc_id: "-".to_owned(),
-            message_id: "ID47".to_owned(),
+            version: 1,
+            timestamp: Some("2003-10-11T22:14:15.003Z".to_owned()),
+            hostname: Some("mymachine.example.com".to_owned()),
+            app_name: Some("evntslog".to_owned()),
+            proc_id: None,
+            message_id: Some("ID47".to_owned()),
             structured_data: Some("[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]".to_owned()),
             message: None,
         };
