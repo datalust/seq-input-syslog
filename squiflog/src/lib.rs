@@ -266,4 +266,26 @@ mod tests {
 
         assert_eq!(expected, actual);
     }
+
+
+    #[test]
+    fn parse_rfc5424_empty_valid_syslog() {
+        let input = "<0>0 - - - - - -";
+
+        let expected = Syslog {
+            priority: Priority { facility: 0, severity: 0 },
+            version: 0,
+            timestamp: None,
+            hostname: None,
+            app_name: None,
+            proc_id: None,
+            message_id: None,
+            structured_data: None,
+            message: None,
+        };
+
+        let actual = Syslog::from_str(input).expect("Could not parse input for syslog.");
+
+        assert_eq!(expected, actual);
+    }
 }
