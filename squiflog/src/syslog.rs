@@ -23,15 +23,15 @@ impl Priority {
             4 => "Warning",
             5 => "Notice",
             6 => "Informational",
-            _ => "Debug"
+            _ => "Debug",
         }
     }
 }
 
-fn filter_syslog_nil(s: &str) -> Option<&str> {
+fn filter_nil(s: &str) -> Option<String> {
     match s {
         "-" => None,
-        _ => Some(s),
+        _ => Some(s.to_string()),
     }
 }
 
@@ -51,7 +51,7 @@ pub struct Message {
 impl Message {
     pub fn from_str(s: &str) -> Result<Self, Error> {
         // split syslog string into elements up to structured data and (message)
-        let mut items = s.splitn(7," ");
+        let mut items = s.splitn(7, " ");
 
         // get priority, e.g. "<30>"
         let pri_version = items.next().expect("Invalid syslog message.");
@@ -64,43 +64,40 @@ impl Message {
         while let Some(item) = priority_chars.next() {
             match item {
                 (7, _) => Err("Invalid syslog format.")?,
-                (idx,'>') => {
+                (idx, '>') => {
                     priority = Some(&pri_version[1..idx]);
-                    version = Some(pri_version.get(idx+1..).ok_or("Unexpected end of header.")?);
+                    version = Some(
+                        pri_version
+                            .get(idx + 1..)
+                            .ok_or("Unexpected end of header.")?,
+                    );
                     break;
-                },
+                }
                 _ => continue,
             }
         }
-        let priority = priority.ok_or("Invalid syslog format.")?.parse::<usize>().map_err(Error::from)?;
+        let priority = priority
+            .ok_or("Invalid syslog format.")?
+            .parse::<usize>()
+            .map_err(Error::from)?;
         let priority = Priority::from_raw(priority);
 
-        let version = version.ok_or("Invalid syslog format. Invalid version.")?.parse::<i32>().unwrap();
+        let version = version
+            .ok_or("Invalid syslog format. Invalid version.")?
+            .parse::<i32>()
+            .unwrap();
 
         // get remaining header items
 
-        let mut timestamp = Some(items.next().ok_or("Missing timestamp.")?.to_string());
-        if timestamp == Some("-".to_string()) {
-            timestamp = None;
-        }
-        let mut hostname = Some(items.next().ok_or("Missing hostname.")?.to_string());
-        if hostname == Some("-".to_string()) {
-            hostname = None;
-        }
-        let mut app_name = Some(items.next().ok_or("Missing app_name.")?.to_string());
-        if app_name == Some("-".to_string()) {
-            app_name = None;
-        }
-        let mut proc_id = Some(items.next().ok_or("Missing app_name.")?.to_string());
-        if proc_id == Some("-".to_string()) {
-            proc_id = None;
-        }
-        let mut message_id = Some(items.next().ok_or("Missing message_id.")?.to_string());
-        if message_id == Some("-".to_string()) {
-            message_id = None;
-        }
+        let timestamp = Some(items.next().ok_or("Missing timestamp.")?).and_then(filter_nil);
+        let hostname = Some(items.next().ok_or("Missing hostname.")?).and_then(filter_nil);
+        let app_name = Some(items.next().ok_or("Missing app_name.")?).and_then(filter_nil);
+        let proc_id = Some(items.next().ok_or("Missing app_name.")?).and_then(filter_nil);
+        let message_id = Some(items.next().ok_or("Missing message_id.")?).and_then(filter_nil);
 
-        let sd_and_msg = items.next().ok_or("Missing structured data and/or message.")?;
+        let sd_and_msg = items
+            .next()
+            .ok_or("Missing structured data and/or message.")?;
 
         // should be no more after this TODO: Turn into error
         assert!(items.next().is_none());
@@ -111,32 +108,30 @@ impl Message {
         let mut message_idx = 2; // start after hyphen
         while let Some(item) = structured_data_chars.next() {
             match item {
-                (0,'-') => {
-                    // No structured_data
+                (0, '-') => {
+                    // No structured data
                     break;
-                },
-                (0,'[') => {
+                }
+                (0, '[') => {
                     // Has structured data
                     continue;
-                },
-                (0, _) => {
-                    Err("Invalid syslog format.")?
-                },
-                (idx,']') => {
+                }
+                (0, _) => Err("Invalid syslog format.")?,
+                (idx, ']') => {
                     if let Some((_, '[')) = structured_data_chars.next() {
                         // if there is more structured data, keep going
                         continue;
                     } else {
                         // else, end of structured data
                         // include the '[' and ']' in structured_data
-                        structured_data = Some(sd_and_msg[..idx+1].to_string());
-                        message_idx = idx+2;
+                        structured_data = Some(sd_and_msg[..idx + 1].to_string());
+                        message_idx = idx + 2;
                         break;
                     }
-                },
+                }
                 _ => {
                     continue;
-                },
+                }
             }
         }
 
@@ -172,7 +167,10 @@ mod tests {
         let input = "<30>1 2020-02-13T00:51:39.527825Z docker-desktop 8b1089798cf8 1481 8b1089798cf8 - hello world\n";
 
         let expected = Message {
-            priority: Priority { facility: 3, severity: 6 },
+            priority: Priority {
+                facility: 3,
+                severity: 6,
+            },
             version: 1,
             timestamp: Some("2020-02-13T00:51:39.527825Z".to_owned()),
             hostname: Some("docker-desktop".to_owned()),
@@ -203,7 +201,10 @@ mod tests {
         let input = "<34>1 2003-10-11T22:14:15.003Z mymachine.example.com su - ID47 - BOM’su root’ failed for lonvick on /dev/pts/8\n";
 
         let expected = Message {
-            priority: Priority { facility: 4, severity: 2 },
+            priority: Priority {
+                facility: 4,
+                severity: 2,
+            },
             version: 1,
             timestamp: Some("2003-10-11T22:14:15.003Z".to_owned()),
             hostname: Some("mymachine.example.com".to_owned()),
@@ -225,7 +226,10 @@ mod tests {
         let input = "<165>1 2003-08-24T05:14:15.000003-07:00 192.0.2.1 myproc 8710 - - %% It's time to make the do-nuts.\n";
 
         let expected = Message {
-            priority: Priority { facility: 20, severity: 5 },
+            priority: Priority {
+                facility: 20,
+                severity: 5,
+            },
             version: 1,
             timestamp: Some("2003-08-24T05:14:15.000003-07:00".to_owned()),
             hostname: Some("192.0.2.1".to_owned()),
@@ -247,14 +251,20 @@ mod tests {
         let input = "<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] BOMAn application event log entry...\n";
 
         let expected = Message {
-            priority: Priority { facility: 20, severity: 5 },
+            priority: Priority {
+                facility: 20,
+                severity: 5,
+            },
             version: 1,
             timestamp: Some("2003-10-11T22:14:15.003Z".to_owned()),
             hostname: Some("mymachine.example.com".to_owned()),
             app_name: Some("evntslog".to_owned()),
             proc_id: None,
             message_id: Some("ID47".to_owned()),
-            structured_data: Some("[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"]".to_owned()),
+            structured_data: Some(
+                "[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"]"
+                    .to_owned(),
+            ),
             message: Some("BOMAn application event log entry...".to_owned()),
         };
 
@@ -286,13 +296,15 @@ mod tests {
         assert_eq!(expected, actual);
     }
 
-
     #[test]
     fn parse_rfc5424_empty_valid_syslog() {
         let input = "<0>0 - - - - - -";
 
         let expected = Message {
-            priority: Priority { facility: 0, severity: 0 },
+            priority: Priority {
+                facility: 0,
+                severity: 0,
+            },
             version: 0,
             timestamp: None,
             hostname: None,
