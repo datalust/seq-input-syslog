@@ -3,6 +3,8 @@ extern crate serde_derive;
 
 use std::collections::HashMap;
 
+use serde_json::{self, json};
+
 pub type Error = Box<dyn std::error::Error>;
 
 mod clef;
@@ -10,7 +12,7 @@ mod syslog;
 
 impl<'a> syslog::Message<'a> {
     fn to_clef(&self) -> clef::Message {
-        //        #![deny(unused_variables)]
+        #![deny(unused_variables)]
 
         let syslog::Message {
             priority,
@@ -25,23 +27,23 @@ impl<'a> syslog::Message<'a> {
         } = self;
 
         let mut additional = HashMap::new();
-        //
-        //        additional.insert("version", version.to_string());
-        //        if let Some(hostname) = hostname {
-        //            additional.insert("hostname", hostname);
-        //        }
-        //        if let Some(app_name) = app_name {
-        //            additional.insert("app_name", app_name);
-        //        }
-        //        if let Some(proc_id) = proc_id {
-        //            additional.insert("proc_id", proc_id);
-        //        }
-        //        if let Some(message_id) = message_id {
-        //            additional.insert("message_id", message_id);
-        //        }
-        //        if let Some(structured_data) = structured_data {
-        //            additional.insert("structured_data", structured_data);
-        //        }
+
+        additional.insert("version", json!(version));
+        if let Some(hostname) = hostname {
+            additional.insert("hostname", json!(hostname));
+        }
+        if let Some(app_name) = app_name {
+            additional.insert("app_name", json!(app_name));
+        }
+        if let Some(proc_id) = proc_id {
+            additional.insert("proc_id", json!(proc_id));
+        }
+        if let Some(message_id) = message_id {
+            additional.insert("message_id", json!(message_id));
+        }
+        if let Some(structured_data) = structured_data {
+            additional.insert("structured_data", json!(structured_data));
+        }
 
         clef::Message {
             timestamp: *timestamp,
@@ -72,6 +74,8 @@ mod test {
             "version": 1,
         });
 
+        let message = "hello world";
+
         let syslog = syslog::Message {
             priority: syslog::Priority {
                 facility: 3,
@@ -84,7 +88,7 @@ mod test {
             proc_id: Some("1481"),
             message_id: Some("8b1089798cf8"),
             structured_data: None,
-            message: Some("hello world"),
+            message: Some(message),
         };
 
         let clef = syslog.to_clef();
