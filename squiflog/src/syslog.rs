@@ -28,28 +28,28 @@ impl Priority {
     }
 }
 
-fn filter_nil(s: &str) -> Option<String> {
+fn filter_nil(s: &str) -> Option<&str> {
     match s {
         "-" => None,
-        _ => Some(s.to_string()),
+        _ => Some(s),
     }
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct Message {
+pub struct Message<'a> {
     pub priority: Priority,
     pub version: i32,
-    pub timestamp: Option<String>,
-    pub hostname: Option<String>,
-    pub app_name: Option<String>,
-    pub proc_id: Option<String>,
-    pub message_id: Option<String>,
-    pub structured_data: Option<String>,
-    pub message: Option<String>,
+    pub timestamp: Option<&'a str>,
+    pub hostname: Option<&'a str>,
+    pub app_name: Option<&'a str>,
+    pub proc_id: Option<&'a str>,
+    pub message_id: Option<&'a str>,
+    pub structured_data: Option<&'a str>,
+    pub message: Option<&'a str>,
 }
 
-impl Message {
-    pub fn from_str(s: &str) -> Result<Self, Error> {
+impl<'a> Message<'a> {
+    pub fn from_str(s: &'a str) -> Result<Self, Error> {
         // split syslog string into elements up to structured data and (message)
         let mut items = s.splitn(7, " ");
 
@@ -103,7 +103,7 @@ impl Message {
         assert!(items.next().is_none());
 
         // structured_data - check that next string is "-" or "["
-        let mut structured_data: Option<String> = None;
+        let mut structured_data: Option<&str> = None;
         let mut structured_data_chars = sd_and_msg.char_indices();
         let mut message_idx = 2; // start after hyphen
         while let Some(item) = structured_data_chars.next() {
@@ -124,7 +124,7 @@ impl Message {
                     } else {
                         // else, end of structured data
                         // include the '[' and ']' in structured_data
-                        structured_data = Some(sd_and_msg[..idx + 1].to_string());
+                        structured_data = Some(&sd_and_msg[..idx + 1]);
                         message_idx = idx + 2;
                         break;
                     }
@@ -135,12 +135,12 @@ impl Message {
             }
         }
 
-        let mut message: Option<String> = None;
+        let mut message: Option<&str> = None;
 
         // check if there is a message
         let rest = sd_and_msg.get(message_idx..);
         if rest.is_some() {
-            message = Some(rest.ok_or("Invalid message.")?.trim().to_string());
+            message = Some(rest.ok_or("Invalid message.")?.trim());
         }
 
         Ok(Message {
@@ -172,13 +172,13 @@ mod tests {
                 severity: 6,
             },
             version: 1,
-            timestamp: Some("2020-02-13T00:51:39.527825Z".to_owned()),
-            hostname: Some("docker-desktop".to_owned()),
-            app_name: Some("8b1089798cf8".to_owned()),
-            proc_id: Some("1481".to_owned()),
-            message_id: Some("8b1089798cf8".to_owned()),
+            timestamp: Some("2020-02-13T00:51:39.527825Z"),
+            hostname: Some("docker-desktop"),
+            app_name: Some("8b1089798cf8"),
+            proc_id: Some("1481"),
+            message_id: Some("8b1089798cf8"),
             structured_data: None,
-            message: Some("hello world".to_owned()),
+            message: Some("hello world"),
         };
 
         let actual = Message::from_str(input).expect("Could not parse input for syslog.");
@@ -206,13 +206,13 @@ mod tests {
                 severity: 2,
             },
             version: 1,
-            timestamp: Some("2003-10-11T22:14:15.003Z".to_owned()),
-            hostname: Some("mymachine.example.com".to_owned()),
-            app_name: Some("su".to_owned()),
+            timestamp: Some("2003-10-11T22:14:15.003Z"),
+            hostname: Some("mymachine.example.com"),
+            app_name: Some("su"),
             proc_id: None,
-            message_id: Some("ID47".to_owned()),
+            message_id: Some("ID47"),
             structured_data: None,
-            message: Some("BOM’su root’ failed for lonvick on /dev/pts/8".to_owned()),
+            message: Some("BOM’su root’ failed for lonvick on /dev/pts/8"),
         };
 
         let actual = Message::from_str(input).expect("Could not parse input for syslog.");
@@ -231,13 +231,13 @@ mod tests {
                 severity: 5,
             },
             version: 1,
-            timestamp: Some("2003-08-24T05:14:15.000003-07:00".to_owned()),
-            hostname: Some("192.0.2.1".to_owned()),
-            app_name: Some("myproc".to_owned()),
-            proc_id: Some("8710".to_owned()),
+            timestamp: Some("2003-08-24T05:14:15.000003-07:00"),
+            hostname: Some("192.0.2.1"),
+            app_name: Some("myproc"),
+            proc_id: Some("8710"),
             message_id: None,
             structured_data: None,
-            message: Some("%% It's time to make the do-nuts.".to_owned()),
+            message: Some("%% It's time to make the do-nuts."),
         };
 
         let actual = Message::from_str(input).expect("Could not parse input for syslog.");
@@ -256,16 +256,15 @@ mod tests {
                 severity: 5,
             },
             version: 1,
-            timestamp: Some("2003-10-11T22:14:15.003Z".to_owned()),
-            hostname: Some("mymachine.example.com".to_owned()),
-            app_name: Some("evntslog".to_owned()),
+            timestamp: Some("2003-10-11T22:14:15.003Z"),
+            hostname: Some("mymachine.example.com"),
+            app_name: Some("evntslog"),
             proc_id: None,
-            message_id: Some("ID47".to_owned()),
+            message_id: Some("ID47"),
             structured_data: Some(
-                "[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"]"
-                    .to_owned(),
+                "[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"]",
             ),
-            message: Some("BOMAn application event log entry...".to_owned()),
+            message: Some("BOMAn application event log entry..."),
         };
 
         let actual = Message::from_str(input).expect("Could not parse input for syslog.");
@@ -282,12 +281,12 @@ mod tests {
         let expected = Message {
             priority: Priority { facility: 20, severity: 5 },
             version: 1,
-            timestamp: Some("2003-10-11T22:14:15.003Z".to_owned()),
-            hostname: Some("mymachine.example.com".to_owned()),
-            app_name: Some("evntslog".to_owned()),
+            timestamp: Some("2003-10-11T22:14:15.003Z"),
+            hostname: Some("mymachine.example.com"),
+            app_name: Some("evntslog"),
             proc_id: None,
-            message_id: Some("ID47".to_owned()),
-            structured_data: Some("[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]".to_owned()),
+            message_id: Some("ID47"),
+            structured_data: Some("[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]"),
             message: None,
         };
 

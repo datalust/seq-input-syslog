@@ -8,9 +8,9 @@ pub type Error = Box<dyn std::error::Error>;
 mod clef;
 mod syslog;
 
-impl syslog::Message {
+impl<'a> syslog::Message<'a> {
     fn to_clef(&self) -> clef::Message {
-        #![deny(unused_variables)]
+        //        #![deny(unused_variables)]
 
         let syslog::Message {
             priority,
@@ -25,28 +25,28 @@ impl syslog::Message {
         } = self;
 
         let mut additional = HashMap::new();
-
-        additional.insert("version".to_owned(), version.clone().into());
-        if let Some(hostname) = hostname {
-            additional.insert("hostname".to_owned(), hostname.clone().into());
-        }
-        if let Some(app_name) = app_name {
-            additional.insert("app_name".to_owned(), app_name.clone().into());
-        }
-        if let Some(proc_id) = proc_id {
-            additional.insert("proc_id".to_owned(), proc_id.clone().into());
-        }
-        if let Some(message_id) = message_id {
-            additional.insert("message_id".to_owned(), message_id.clone().into());
-        }
-        if let Some(structured_data) = structured_data {
-            additional.insert("structured_data".to_owned(), structured_data.clone().into());
-        }
+        //
+        //        additional.insert("version", version.to_string());
+        //        if let Some(hostname) = hostname {
+        //            additional.insert("hostname", hostname);
+        //        }
+        //        if let Some(app_name) = app_name {
+        //            additional.insert("app_name", app_name);
+        //        }
+        //        if let Some(proc_id) = proc_id {
+        //            additional.insert("proc_id", proc_id);
+        //        }
+        //        if let Some(message_id) = message_id {
+        //            additional.insert("message_id", message_id);
+        //        }
+        //        if let Some(structured_data) = structured_data {
+        //            additional.insert("structured_data", structured_data);
+        //        }
 
         clef::Message {
-            timestamp: timestamp.clone(),
-            level: Some(priority.severity().to_string()),
-            message: message.clone(),
+            timestamp: *timestamp,
+            level: Some(priority.severity()),
+            message: *message,
             message_template: None,
             exception: None,
             additional,
@@ -60,7 +60,7 @@ mod test {
     use serde_json::{self, json};
 
     #[test]
-    fn syslog_to_clef () {
+    fn syslog_to_clef() {
         let expected = json!({
             "@l": "Informational",
             "@m": "hello world",
@@ -73,15 +73,18 @@ mod test {
         });
 
         let syslog = syslog::Message {
-            priority: syslog::Priority { facility: 3, severity: 6 },
+            priority: syslog::Priority {
+                facility: 3,
+                severity: 6,
+            },
             version: 1,
-            timestamp: Some("2020-02-13T00:51:39.527825Z".to_owned()),
-            hostname: Some("docker-desktop".to_owned()),
-            app_name: Some("8b1089798cf8".to_owned()),
-            proc_id: Some("1481".to_owned()),
-            message_id: Some("8b1089798cf8".to_owned()),
+            timestamp: Some("2020-02-13T00:51:39.527825Z"),
+            hostname: Some("docker-desktop"),
+            app_name: Some("8b1089798cf8"),
+            proc_id: Some("1481"),
+            message_id: Some("8b1089798cf8"),
             structured_data: None,
-            message: Some("hello world".to_owned()),
+            message: Some("hello world"),
         };
 
         let clef = syslog.to_clef();
