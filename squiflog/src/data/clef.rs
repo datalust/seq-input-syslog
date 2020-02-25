@@ -14,11 +14,11 @@ pub struct Message<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<&'a str>,
 
+    // @mt and @x are currently not used
     #[serde(rename = "@mt")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_template: Option<&'a str>,
 
-    // This is mapped from `full_message`, which GELF suggests might contain a backtrace
     #[serde(rename = "@x")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exception: Option<&'a str>,
