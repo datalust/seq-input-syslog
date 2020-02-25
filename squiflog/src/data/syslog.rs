@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::error::{err_msg, Error};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Priority {
@@ -63,13 +63,13 @@ impl<'a> Message<'a> {
         let mut version = None;
         while let Some(item) = priority_chars.next() {
             match item {
-                (7, _) => Err("Invalid syslog format.")?,
+                (7, _) => Err(err_msg("Invalid syslog format."))?,
                 (idx, '>') => {
                     priority = Some(&pri_version[1..idx]);
                     version = Some(
                         pri_version
                             .get(idx + 1..)
-                            .ok_or("Unexpected end of header.")?,
+                            .ok_or_else(|| err_msg("Unexpected end of header."))?,
                     );
                     break;
                 }
@@ -77,27 +77,32 @@ impl<'a> Message<'a> {
             }
         }
         let priority = priority
-            .ok_or("Invalid syslog format.")?
+            .ok_or_else(|| err_msg("Invalid syslog format."))?
             .parse::<usize>()
             .map_err(Error::from)?;
         let priority = Priority::from_raw(priority);
 
         let version = version
-            .ok_or("Invalid syslog format. Invalid version.")?
+            .ok_or_else(|| err_msg("Invalid syslog format. Invalid version."))?
             .parse::<i32>()
             .unwrap();
 
         // get remaining header items
 
-        let timestamp = Some(items.next().ok_or("Missing timestamp.")?).and_then(filter_nil);
-        let hostname = Some(items.next().ok_or("Missing hostname.")?).and_then(filter_nil);
-        let app_name = Some(items.next().ok_or("Missing app_name.")?).and_then(filter_nil);
-        let proc_id = Some(items.next().ok_or("Missing app_name.")?).and_then(filter_nil);
-        let message_id = Some(items.next().ok_or("Missing message_id.")?).and_then(filter_nil);
+        let timestamp =
+            Some(items.next().ok_or_else(|| err_msg("Missing timestamp."))?).and_then(filter_nil);
+        let hostname =
+            Some(items.next().ok_or_else(|| err_msg("Missing hostname."))?).and_then(filter_nil);
+        let app_name =
+            Some(items.next().ok_or_else(|| err_msg("Missing app_name."))?).and_then(filter_nil);
+        let proc_id =
+            Some(items.next().ok_or_else(|| err_msg("Missing app_name."))?).and_then(filter_nil);
+        let message_id =
+            Some(items.next().ok_or_else(|| err_msg("Missing message_id."))?).and_then(filter_nil);
 
         let sd_and_msg = items
             .next()
-            .ok_or("Missing structured data and/or message.")?;
+            .ok_or_else(|| err_msg("Missing structured data and/or message."))?;
 
         // should be no more after this TODO: Turn into error
         assert!(items.next().is_none());
@@ -116,7 +121,7 @@ impl<'a> Message<'a> {
                     // Has structured data
                     continue;
                 }
-                (0, _) => Err("Invalid syslog format.")?,
+                (0, _) => Err(err_msg("Invalid syslog format."))?,
                 (idx, ']') => {
                     if let Some((_, '[')) = structured_data_chars.next() {
                         // if there is more structured data, keep going
@@ -140,7 +145,7 @@ impl<'a> Message<'a> {
         // check if there is a message
         let rest = sd_and_msg.get(message_idx..);
         if rest.is_some() {
-            message = Some(rest.ok_or("Invalid message.")?.trim());
+            message = Some(rest.ok_or_else(|| err_msg("Invalid message."))?.trim());
         }
 
         Ok(Message {
