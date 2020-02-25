@@ -72,7 +72,6 @@ impl<'a> syslog::Message<'a> {
 
         let mut additional = HashMap::new();
 
-        additional.insert("severity", json!(priority.severity()));
         additional.insert("facility", json!(priority.facility()));
         additional.insert("version", json!(version));
         if let Some(hostname) = hostname {
@@ -113,7 +112,6 @@ mod test {
             "@l": "info",
             "@m": "hello world",
             "@t": "2020-02-13T00:51:39.527825Z",
-            "severity": "info",
             "facility": "daemon",
             "version": 1,
             "hostname": "docker-desktop",
