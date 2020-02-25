@@ -48,13 +48,27 @@ pub struct Message<'a> {
     pub message: Option<&'a str>,
 }
 
+/**
+A SYSLOG message
+
+RFC5424 format:
+<PRIVAL>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID STRUCTURED-DATA (MSG)
+
+PRIVAL - a number from 0..191
+VERSION - always 1 for RFC5424
+STRUCTURED-DATA - [SDID PARAM-NAME="PARAM-VALUE"][SDID2 PARAM2-NAME="PARAM2-VALUE"]
+MSG - message is optional, and can contain spaces
+
+All other values are alphanumeric strings with no spaces.
+See https://tools.ietf.org/html/rfc5424#section-5.1 for details.
+*/
 impl<'a> Message<'a> {
     pub fn from_str(s: &'a str) -> Result<Self, Error> {
         // split syslog string into elements up to structured data and (message)
         let mut items = s.splitn(7, " ");
 
         // get priority, e.g. "<30>"
-        let pri_version = items.next().expect("Invalid syslog message.");
+        let pri_version = items.next().expect("empty syslog message");
         let mut priority_chars = pri_version.char_indices();
 
         assert_eq!(Some((0, '<')), priority_chars.next());
@@ -63,13 +77,13 @@ impl<'a> Message<'a> {
         let mut version = None;
         while let Some(item) = priority_chars.next() {
             match item {
-                (7, _) => Err(err_msg("Invalid syslog format."))?,
+                (7, _) => Err(err_msg("invalid syslog priority - too long"))?, // priority format: <1234>
                 (idx, '>') => {
                     priority = Some(&pri_version[1..idx]);
                     version = Some(
                         pri_version
                             .get(idx + 1..)
-                            .ok_or_else(|| err_msg("Unexpected end of header."))?,
+                            .ok_or_else(|| err_msg("unexpected end of syslog header"))?,
                     );
                     break;
                 }
@@ -77,32 +91,52 @@ impl<'a> Message<'a> {
             }
         }
         let priority = priority
-            .ok_or_else(|| err_msg("Invalid syslog format."))?
+            .ok_or_else(|| err_msg("invalid syslog priority - not a number"))?
             .parse::<usize>()
             .map_err(Error::from)?;
         let priority = Priority::from_raw(priority);
 
         let version = version
-            .ok_or_else(|| err_msg("Invalid syslog format. Invalid version."))?
+            .ok_or_else(|| err_msg("invalid syslog version"))?
             .parse::<i32>()
             .unwrap();
 
         // get remaining header items
 
-        let timestamp =
-            Some(items.next().ok_or_else(|| err_msg("Missing timestamp."))?).and_then(filter_nil);
-        let hostname =
-            Some(items.next().ok_or_else(|| err_msg("Missing hostname."))?).and_then(filter_nil);
-        let app_name =
-            Some(items.next().ok_or_else(|| err_msg("Missing app_name."))?).and_then(filter_nil);
-        let proc_id =
-            Some(items.next().ok_or_else(|| err_msg("Missing app_name."))?).and_then(filter_nil);
-        let message_id =
-            Some(items.next().ok_or_else(|| err_msg("Missing message_id."))?).and_then(filter_nil);
+        let timestamp = Some(
+            items
+                .next()
+                .ok_or_else(|| err_msg("missing syslog timestamp"))?,
+        )
+        .and_then(filter_nil);
+        let hostname = Some(
+            items
+                .next()
+                .ok_or_else(|| err_msg("missing syslog hostname"))?,
+        )
+        .and_then(filter_nil);
+        let app_name = Some(
+            items
+                .next()
+                .ok_or_else(|| err_msg("missing syslog app_name"))?,
+        )
+        .and_then(filter_nil);
+        let proc_id = Some(
+            items
+                .next()
+                .ok_or_else(|| err_msg("missing syslog proc_id"))?,
+        )
+        .and_then(filter_nil);
+        let message_id = Some(
+            items
+                .next()
+                .ok_or_else(|| err_msg("missing syslog message_id"))?,
+        )
+        .and_then(filter_nil);
 
         let sd_and_msg = items
             .next()
-            .ok_or_else(|| err_msg("Missing structured data and/or message."))?;
+            .ok_or_else(|| err_msg("missing structured data and/or message"))?;
 
         // should be no more after this TODO: Turn into error
         assert!(items.next().is_none());
@@ -121,7 +155,9 @@ impl<'a> Message<'a> {
                     // Has structured data
                     continue;
                 }
-                (0, _) => Err(err_msg("Invalid syslog format."))?,
+                (0, _) => Err(err_msg(
+                    "invalid syslog structured data format - no leading '['",
+                ))?,
                 (idx, ']') => {
                     if let Some((_, '[')) = structured_data_chars.next() {
                         // if there is more structured data, keep going
@@ -145,7 +181,10 @@ impl<'a> Message<'a> {
         // check if there is a message
         let rest = sd_and_msg.get(message_idx..);
         if rest.is_some() {
-            message = Some(rest.ok_or_else(|| err_msg("Invalid message."))?.trim());
+            message = Some(
+                rest.ok_or_else(|| err_msg("invalid syslog message"))?
+                    .trim(),
+            );
         }
 
         Ok(Message {
@@ -186,7 +225,7 @@ mod tests {
             message: Some("hello world"),
         };
 
-        let actual = Message::from_str(input).expect("Could not parse input for syslog.");
+        let actual = Message::from_str(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
@@ -197,7 +236,7 @@ mod tests {
 
         let actual = Message::from_str(input);
 
-        assert_eq!("Missing hostname.", actual.unwrap_err().to_string());
+        assert_eq!("missing syslog hostname", actual.unwrap_err().to_string());
     }
 
     #[test]
@@ -220,7 +259,7 @@ mod tests {
             message: Some("BOM’su root’ failed for lonvick on /dev/pts/8"),
         };
 
-        let actual = Message::from_str(input).expect("Could not parse input for syslog.");
+        let actual = Message::from_str(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
@@ -245,7 +284,7 @@ mod tests {
             message: Some("%% It's time to make the do-nuts."),
         };
 
-        let actual = Message::from_str(input).expect("Could not parse input for syslog.");
+        let actual = Message::from_str(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
@@ -272,7 +311,7 @@ mod tests {
             message: Some("BOMAn application event log entry..."),
         };
 
-        let actual = Message::from_str(input).expect("Could not parse input for syslog.");
+        let actual = Message::from_str(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
@@ -295,7 +334,7 @@ mod tests {
             message: None,
         };
 
-        let actual = Message::from_str(input).expect("Could not parse input for syslog.");
+        let actual = Message::from_str(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
@@ -319,7 +358,7 @@ mod tests {
             message: None,
         };
 
-        let actual = Message::from_str(input).expect("Could not parse input for syslog.");
+        let actual = Message::from_str(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
