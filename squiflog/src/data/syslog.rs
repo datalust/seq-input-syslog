@@ -58,9 +58,9 @@ impl Priority {
     }
 }
 
-fn filter_nil(s: &str) -> Option<&str> {
+fn filter_nil(s: &[u8]) -> Option<&[u8]> {
     match s {
-        "-" => None,
+        b"-" => None,
         _ => Some(s),
     }
 }
@@ -68,7 +68,6 @@ fn filter_nil(s: &str) -> Option<&str> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Message<'a> {
     pub priority: Priority,
-    pub version: i32,
     pub timestamp: Option<&'a str>,
     pub hostname: Option<&'a str>,
     pub app_name: Option<&'a str>,
@@ -94,21 +93,27 @@ See https://tools.ietf.org/html/rfc5424#section-5.1 for details.
 */
 impl<'a> Message<'a> {
     pub fn from_str(s: &'a str) -> Result<Self, Error> {
+        Self::from_bytes(s.as_bytes())
+    }
+
+    pub fn from_bytes(s: &'a [u8]) -> Result<Self, Error> {
         // split syslog string into elements up to structured data and (message)
-        let mut items = s.splitn(7, " ");
+        let mut items = s.splitn(7, |b| *b == 32u8); // split on spaces
 
         // get priority, e.g. "<30>"
-        let pri_version = items.next().expect("empty syslog message");
-        let mut priority_chars = pri_version.char_indices();
+        let pri_version = items.next().ok_or_else(|| err_msg("empty syslog message"))?;
+        let mut priority_chars = pri_version.iter();
 
-        assert_eq!(Some((0, '<')), priority_chars.next());
+        if priority_chars.next() != Some(&b'<') {
+            return Err(err_msg("invalid message, no <"))
+        }
 
         let mut priority = None;
         let mut version = None;
+        let mut idx = 1;
         while let Some(item) = priority_chars.next() {
             match item {
-                (7, _) => Err(err_msg("invalid syslog priority - too long"))?, // priority format: <1234>
-                (idx, '>') => {
+                b'>' => {
                     priority = Some(&pri_version[1..idx]);
                     version = Some(
                         pri_version
@@ -117,19 +122,26 @@ impl<'a> Message<'a> {
                     );
                     break;
                 }
-                _ => continue,
+                _ => idx += 1,
             }
         }
-        let priority = priority
-            .ok_or_else(|| err_msg("invalid syslog priority - not a number"))?
+
+        if version != Some(&b"1"[..]) {
+            return Err(err_msg("invalid message, version not 1"));
+        }
+
+        let priority_bytes = priority
+            .ok_or_else(|| err_msg("invalid syslog priority - not a number"))?;
+
+        if priority_bytes.len() > 4 {
+            return Err(err_msg("invalid message, priority too long"));
+        }
+
+        let priority = std::str::from_utf8(&priority_bytes)?
             .parse::<usize>()
             .map_err(Error::from)?;
-        let priority = Priority::from_raw(priority);
 
-        let version = version
-            .ok_or_else(|| err_msg("invalid syslog version"))?
-            .parse::<i32>()
-            .unwrap();
+        let priority = Priority::from_raw(priority);
 
         // get remaining header items
 
@@ -168,39 +180,44 @@ impl<'a> Message<'a> {
             .next()
             .ok_or_else(|| err_msg("missing structured data and/or message"))?;
 
-        // should be no more after this TODO: Turn into error
+        // Should be no more after this because splitn limits the number of possible fragments
         assert!(items.next().is_none());
 
         // structured_data - check that next string is "-" or "["
-        let mut structured_data: Option<&str> = None;
-        let mut structured_data_chars = sd_and_msg.char_indices();
+        let mut structured_data: Option<&[u8]> = None;
+        let mut structured_data_chars = sd_and_msg.iter();
         let mut message_idx = 2; // start after hyphen
+        let mut idx = 0;
         while let Some(item) = structured_data_chars.next() {
-            match item {
-                (0, '-') => {
+            match (idx, item) {
+                (0, b'-') => {
                     // No structured data
                     break;
                 }
-                (0, '[') => {
+                (0, b'[') => {
                     // Has structured data
+                    idx += 1;
                     continue;
                 }
                 (0, _) => Err(err_msg(
                     "invalid syslog structured data format - no leading '['",
                 ))?,
-                (idx, ']') => {
-                    if let Some((_, '[')) = structured_data_chars.next() {
+                (ii, b']') => {
+                    let following = structured_data_chars.next();
+                    if let Some(b'[') = following {
                         // if there is more structured data, keep going
+                        idx += 2;
                         continue;
                     } else {
                         // else, end of structured data
                         // include the '[' and ']' in structured_data
-                        structured_data = Some(&sd_and_msg[..idx + 1]);
-                        message_idx = idx + 2;
+                        structured_data = Some(&sd_and_msg[..ii + 1]);
+                        message_idx = ii + if following.is_some() { 1 } else { 2 };
                         break;
                     }
                 }
                 _ => {
+                    idx += 1;
                     continue;
                 }
             }
@@ -210,22 +227,33 @@ impl<'a> Message<'a> {
 
         // check if there is a message
         let rest = sd_and_msg.get(message_idx..);
-        if rest.is_some() {
-            message = Some(
-                rest.ok_or_else(|| err_msg("invalid syslog message"))?
-                    .trim(),
-            );
+        if let Some(mut msg) = rest {
+            if msg.len() >= 3 && &msg[0..3] == b"\xEF\xBB\xBF" {
+                msg = &msg[3..];
+            }
+
+            if msg.len() != 0 {
+                message = Some(std::str::from_utf8(msg)?.trim_end());
+            }
+        }
+
+        fn to_str(b: Option<&[u8]>) -> Result<Option<&str>, Error> {
+            if let Some(bytes) = b {
+                // When the message is not valid UTF-8 here, we might try to use a lossy conversion.
+                Ok(Some(std::str::from_utf8(bytes)?))
+            } else {
+                Ok(None)
+            }
         }
 
         Ok(Message {
             priority,
-            version,
-            timestamp,
-            hostname,
-            app_name,
-            proc_id,
-            message_id,
-            structured_data,
+            timestamp: to_str(timestamp)?,
+            hostname: to_str(hostname)?,
+            app_name: to_str(app_name)?,
+            proc_id: to_str(proc_id)?,
+            message_id: to_str(message_id)?,
+            structured_data: to_str(structured_data)?,
             message,
         })
     }
@@ -245,7 +273,6 @@ mod tests {
                 facility: 3,
                 severity: 6,
             },
-            version: 1,
             timestamp: Some("2020-02-13T00:51:39.527825Z"),
             hostname: Some("docker-desktop"),
             app_name: Some("8b1089798cf8"),
@@ -272,24 +299,23 @@ mod tests {
     #[test]
     fn parse_rfc5424_syslog_specs_example_1() {
         // example 1 from https://tools.ietf.org/html/rfc5424
-        let input = "<34>1 2003-10-11T22:14:15.003Z mymachine.example.com su - ID47 - BOM’su root’ failed for lonvick on /dev/pts/8\n";
+        let input = b"<34>1 2003-10-11T22:14:15.003Z mymachine.example.com su - ID47 - \xEF\xBB\xBF\xE2\x80\x99su root\xE2\x80\x99 failed for lonvick on /dev/pts/8\n";
 
         let expected = Message {
             priority: Priority {
                 facility: 4,
                 severity: 2,
             },
-            version: 1,
             timestamp: Some("2003-10-11T22:14:15.003Z"),
             hostname: Some("mymachine.example.com"),
             app_name: Some("su"),
             proc_id: None,
             message_id: Some("ID47"),
             structured_data: None,
-            message: Some("BOM’su root’ failed for lonvick on /dev/pts/8"),
+            message: Some("’su root’ failed for lonvick on /dev/pts/8"),
         };
 
-        let actual = Message::from_str(input).expect("could not parse input for syslog");
+        let actual = Message::from_bytes(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
@@ -304,7 +330,6 @@ mod tests {
                 facility: 20,
                 severity: 5,
             },
-            version: 1,
             timestamp: Some("2003-08-24T05:14:15.000003-07:00"),
             hostname: Some("192.0.2.1"),
             app_name: Some("myproc"),
@@ -329,7 +354,6 @@ mod tests {
                 facility: 20,
                 severity: 5,
             },
-            version: 1,
             timestamp: Some("2003-10-11T22:14:15.003Z"),
             hostname: Some("mymachine.example.com"),
             app_name: Some("evntslog"),
@@ -354,7 +378,6 @@ mod tests {
 
         let expected = Message {
             priority: Priority { facility: 20, severity: 5 },
-            version: 1,
             timestamp: Some("2003-10-11T22:14:15.003Z"),
             hostname: Some("mymachine.example.com"),
             app_name: Some("evntslog"),
@@ -371,14 +394,13 @@ mod tests {
 
     #[test]
     fn parse_rfc5424_empty_valid_syslog() {
-        let input = "<0>0 - - - - - -";
+        let input = "<0>1 - - - - - -";
 
         let expected = Message {
             priority: Priority {
                 facility: 0,
                 severity: 0,
             },
-            version: 0,
             timestamp: None,
             hostname: None,
             app_name: None,
