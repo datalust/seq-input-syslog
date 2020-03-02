@@ -1,10 +1,11 @@
 use std::{borrow::Cow, collections::HashMap};
 use serde_json::Value;
+use chrono::{DateTime, Utc};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Message<'a> {
     #[serde(rename = "@t")]
-    pub timestamp: Cow<'a, str>,
+    pub timestamp: DateTime<Utc>,
 
     #[serde(rename = "@l")]
     pub level: Option<&'a str>,

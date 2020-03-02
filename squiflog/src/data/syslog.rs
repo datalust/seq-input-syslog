@@ -1,15 +1,16 @@
 use crate::error::{err_msg, Error};
 use std::{collections::HashMap, borrow::Cow};
-use chrono::Utc;
+use chrono::{Utc, DateTime, TimeZone};
+use crate::data::parsers;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Priority {
-    pub facility: usize,
-    pub severity: usize,
+    pub facility: u8,
+    pub severity: u8,
 }
 
 impl Priority {
-    fn from_raw(raw: usize) -> Self {
+    fn from_raw(raw: u8) -> Self {
         let facility = raw / 8;
         let severity = raw % 8;
 
@@ -122,7 +123,7 @@ fn filter_nil(s: &[u8]) -> Option<&[u8]> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct Message<'a> {
     pub priority: Priority,
-    pub timestamp: Option<&'a str>,
+    pub timestamp: Option<DateTime<Utc>>,
     pub hostname: Option<&'a str>,
     pub app_name: Option<&'a str>,
     pub proc_id: Option<&'a str>,
@@ -151,11 +152,12 @@ impl<'a> Message<'a> {
     }
 
     pub fn from_bytes(s: &'a [u8]) -> Self {
-        Self::from_rfc5424_bytes(s).unwrap_or_else(|_| Self::from_rfc3164_bytes(s))
+        Self::from_rfc5424_bytes(s).unwrap_or_else(|_| Self::from_rfc3164_bytes(s, &Utc::now()))
     }
 
-    pub fn from_rfc3164_bytes(s: &'a [u8]) -> Self {
-        Message {
+    pub fn from_rfc3164_bytes(msg: &'a [u8], now: &DateTime<Utc>) -> Self {
+        let mut unparsed = msg;
+        let mut result = Message {
             priority: Priority::from_raw(13),
             timestamp: None,
             hostname: None,
@@ -163,8 +165,35 @@ impl<'a> Message<'a> {
             proc_id: None,
             message_id: None,
             structured_data: None,
-            message: Some(String::from_utf8_lossy(s)),
+            message: None,
+        };
+
+        if let Ok((priority, rem)) = parsers::priority(unparsed) {
+            result.priority = Priority::from_raw(priority);
+            unparsed = rem;
+
+            if let Ok((timestamp, rem)) = parsers::loose_timestamp(unparsed, now) {
+                result.timestamp = Some(timestamp);
+                unparsed = rem;
+
+                if let Ok(rem) = parsers::byte(unparsed, b' ') {
+                    unparsed = rem;
+
+                    if let Ok((hostname, rem)) = parsers::header_item(unparsed) {
+                        result.hostname = hostname;
+                        unparsed = rem;
+                    }
+                }
+            }
         }
+
+        result.message = if unparsed.len() > 0 { Some(String::from_utf8_lossy(unparsed)) } else { None };
+
+        if result.timestamp.is_none() {
+            result.timestamp = Some(now.clone())
+        }
+
+        result
     }
 
     pub fn from_rfc5424_bytes(s: &'a [u8]) -> Result<Self, Error> {
@@ -209,19 +238,23 @@ impl<'a> Message<'a> {
         }
 
         let priority = std::str::from_utf8(&priority_bytes)?
-            .parse::<usize>()
+            .parse::<u8>()
             .map_err(Error::from)?;
 
         let priority = Priority::from_raw(priority);
 
         // get remaining header items
 
-        let timestamp = Some(
-            items
+        let timestamp = if let Some(ts) = Some(
+                items
                 .next()
-                .ok_or_else(|| err_msg("missing syslog timestamp"))?,
-        )
-        .and_then(filter_nil);
+                .ok_or_else(|| err_msg("missing syslog timestamp"))?
+            ).and_then(filter_nil) {
+            Some(DateTime::parse_from_rfc3339(std::str::from_utf8(ts)?.trim())?.with_timezone(&Utc))
+        } else {
+            None
+        };
+
         let hostname = Some(
             items
                 .next()
@@ -332,7 +365,7 @@ impl<'a> Message<'a> {
 
         Ok(Message {
             priority,
-            timestamp: to_str(timestamp)?,
+            timestamp,
             hostname: to_str(hostname)?,
             app_name: to_str(app_name)?,
             proc_id: to_str(proc_id)?,
@@ -347,6 +380,8 @@ impl<'a> Message<'a> {
 mod tests {
     use super::*;
     use std::borrow::Cow::{Borrowed, Owned};
+    use chrono::{Datelike, Date};
+    use crate::test_util::to_timestamp;
 
     #[test]
     fn parse_rfc5424_syslog_message() {
@@ -358,7 +393,7 @@ mod tests {
                 facility: 3,
                 severity: 6,
             },
-            timestamp: Some("2020-02-13T00:51:39.527825Z"),
+            timestamp: to_timestamp("2020-02-13T00:51:39.527825Z"),
             hostname: Some("docker-desktop"),
             app_name: Some("8b1089798cf8"),
             proc_id: Some("1481"),
@@ -373,8 +408,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_rfc5424_syslog_should_throw_error() {
-        let input = b"<30>1 2020-02-13T00:51:39\n";
+    fn parse_rfc5424_syslog_requires_hostname() {
+        // To do - there's a slight bug here, if an extra space is inserted after 'Z' then the
+        // host name will end up empty, and an error reported for app_name.
+        let input = b"<30>1 2020-02-13T00:51:39Z";
 
         let actual = Message::from_rfc5424_bytes(input);
 
@@ -391,7 +428,7 @@ mod tests {
                 facility: 4,
                 severity: 2,
             },
-            timestamp: Some("2003-10-11T22:14:15.003Z"),
+            timestamp: to_timestamp("2003-10-11T22:14:15.003Z"),
             hostname: Some("mymachine.example.com"),
             app_name: Some("su"),
             proc_id: None,
@@ -415,7 +452,7 @@ mod tests {
                 facility: 20,
                 severity: 5,
             },
-            timestamp: Some("2003-08-24T05:14:15.000003-07:00"),
+            timestamp: to_timestamp("2003-08-24T05:14:15.000003-07:00"),
             hostname: Some("192.0.2.1"),
             app_name: Some("myproc"),
             proc_id: Some("8710"),
@@ -444,7 +481,7 @@ mod tests {
                 facility: 20,
                 severity: 5,
             },
-            timestamp: Some("2003-10-11T22:14:15.003Z"),
+            timestamp: to_timestamp("2003-10-11T22:14:15.003Z"),
             hostname: Some("mymachine.example.com"),
             app_name: Some("evntslog"),
             proc_id: None,
@@ -491,7 +528,7 @@ mod tests {
                 facility: 20,
                 severity: 5,
             },
-            timestamp: Some("2003-10-11T22:14:15.003Z"),
+            timestamp: to_timestamp("2003-10-11T22:14:15.003Z"),
             hostname: Some("mymachine.example.com"),
             app_name: Some("evntslog"),
             proc_id: None,
@@ -546,5 +583,32 @@ mod tests {
             .expect("could not parse input for structured data element");
 
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn parse_rfc3164_example_2() {
+        let input = b"<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8";
+
+        let now = Utc.ymd(2020, 10, 11).and_hms(0, 0, 0);
+        let msg = Message::from_rfc3164_bytes(input, &now);
+
+        assert_eq!(msg.priority.facility, 4);
+        assert_eq!(msg.priority.severity, 2);
+        assert_eq!(msg.timestamp.unwrap().month(), 10); // Rest depends on local timezone ":-)
+        assert_eq!(msg.hostname, Some("mymachine"));
+
+        // The 'tag' remains in the message; although we could extract 'su' as the tag, adherence to
+        // this format seems very patchy, and we're more likely to end up breaking messages that
+        // happen to include `:` by mistake.
+        assert_eq!(msg.message, Some(Borrowed("su: 'su root' failed for lonvick on /dev/pts/8")));
+    }
+
+    #[test]
+    fn parse_rfc3164_example_1() {
+        let input = b"Use the BFG!";
+
+        let msg = Message::from_rfc3164_bytes(input, &Utc::now());
+
+        assert_eq!("Use the BFG!", msg.message.unwrap());
     }
 }
