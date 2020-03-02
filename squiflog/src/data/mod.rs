@@ -110,7 +110,7 @@ impl<'a> syslog::Message<'a> {
         }
 
         clef::Message {
-            timestamp: timestamp.unwrap_or_else(|| Owned(Utc::now().to_rfc3339())),
+            timestamp: timestamp.map(|ts| Borrowed(ts)).unwrap_or_else(|| Owned(Utc::now().to_rfc3339())),
             level: Some(priority.severity()),
             message,
             message_template: None,
@@ -146,7 +146,7 @@ mod test {
                 facility: 3,
                 severity: 6,
             },
-            timestamp: Some(Borrowed("2020-02-13T00:51:39.527825Z")),
+            timestamp: Some("2020-02-13T00:51:39.527825Z"),
             hostname: Some("docker-desktop"),
             app_name: Some("8b1089798cf8"),
             proc_id: Some("1481"),
@@ -186,7 +186,7 @@ mod test {
                 facility: 3,
                 severity: 6,
             },
-            timestamp: Some(Borrowed("2020-02-13T00:51:39.527825Z")),
+            timestamp: Some("2020-02-13T00:51:39.527825Z"),
             hostname: Some("docker-desktop"),
             app_name: Some("8b1089798cf8"),
             proc_id: Some("1481"),
