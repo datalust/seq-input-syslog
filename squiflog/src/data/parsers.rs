@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn until_excludes_end() {
         let i = b"12345";
-        let (onetwo, rem) = until(i, b'3').expect("could not parse items");
-        assert_eq!(&b"12"[..], onetwo);
+        let (one_two, _) = until(i, b'3').expect("could not parse items");
+        assert_eq!(&b"12"[..], one_two);
     }
 }

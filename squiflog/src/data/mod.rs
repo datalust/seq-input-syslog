@@ -124,7 +124,7 @@ impl<'a> syslog::Message<'a> {
 mod test {
     use super::*;
     use serde_json::{self, json};
-    use std::borrow::Cow::{Borrowed, Owned};
+    use std::borrow::Cow::Borrowed;
     use crate::test_util::to_timestamp;
 
     #[test]
@@ -163,7 +163,7 @@ mod test {
     }
 
     #[test]
-    fn syslog_to_clef__with_structured_data() {
+    fn syslog_to_clef_with_structured_data() {
         let expected = json!({
             "@l": "info",
             "@m": "hello world",

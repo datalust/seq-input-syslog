@@ -379,8 +379,8 @@ impl<'a> Message<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::borrow::Cow::{Borrowed, Owned};
-    use chrono::{Datelike, Date};
+    use std::borrow::Cow::Borrowed;
+    use chrono::{Datelike, TimeZone};
     use crate::test_util::to_timestamp;
 
     #[test]
