@@ -15,8 +15,8 @@ function Invoke-SmokeTest($protocol, $format) {
 
     do {
         try {
-            Start-SeqEnvironment($protocol)
-            Invoke-TestApp($protocol, $format)
+            Start-SeqEnvironment $protocol
+            Invoke-TestApp $protocol $format
             Check-SquiflogLogs
             Check-SeqLogs
             Check-ClefOutput
