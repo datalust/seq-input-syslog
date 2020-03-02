@@ -4,6 +4,8 @@ use serde_json::{self, json};
 
 use crate::error::Error;
 use std::io::Write;
+use chrono::Utc;
+use std::borrow::Cow::{self, Owned, Borrowed};
 
 mod clef;
 pub mod syslog;
@@ -41,8 +43,8 @@ impl Data {
 
     pub fn read_as_clef(&self, msg: &[u8]) -> Result<(), Error> {
         increment!(data.msg);
-        let syslog = syslog::Message::from_bytes(msg)?;
-        let clef = syslog.to_clef();
+        let syslog = syslog::Message::from_bytes(msg);
+        let clef = syslog.into_clef();
         let stdout = io::stdout();
         let mut stdout = stdout.lock();
 
@@ -71,7 +73,7 @@ impl<'a> syslog::Message<'a> {
     If fields conflict, then the lower-priority field is included with a
     double-underscore-prefixed name, e.g.: "__host".
     */
-    pub fn to_clef(&self) -> clef::Message {
+    pub fn into_clef(self) -> clef::Message<'a> {
         #![deny(unused_variables)]
 
         let syslog::Message {
@@ -108,9 +110,9 @@ impl<'a> syslog::Message<'a> {
         }
 
         clef::Message {
-            timestamp: *timestamp,
+            timestamp: timestamp.map(|ts| Borrowed(ts)).unwrap_or_else(|| Owned(Utc::now().to_rfc3339())),
             level: Some(priority.severity()),
-            message: *message,
+            message,
             message_template: None,
             exception: None,
             additional,
@@ -122,6 +124,7 @@ impl<'a> syslog::Message<'a> {
 mod test {
     use super::*;
     use serde_json::{self, json};
+    use std::borrow::Cow::{Borrowed, Owned};
 
     #[test]
     fn syslog_to_clef() {
@@ -149,10 +152,10 @@ mod test {
             proc_id: Some("1481"),
             message_id: Some("8b1089798cf8"),
             structured_data: None,
-            message: Some(message),
+            message: Some(Borrowed(message)),
         };
 
-        let clef = syslog.to_clef();
+        let clef = syslog.into_clef();
         let actual = serde_json::to_value(clef).unwrap();
 
         assert_eq!(expected, actual);
@@ -165,7 +168,6 @@ mod test {
             "@m": "hello world",
             "@t": "2020-02-13T00:51:39.527825Z",
             "facility": "daemon",
-            "version": 1,
             "hostname": "docker-desktop",
             "app_name": "8b1089798cf8",
             "proc_id": "1481",
@@ -193,10 +195,10 @@ mod test {
                 id: "sdid1234",
                 param: sd_params,
             }]),
-            message: Some(message),
+            message: Some(Borrowed(message)),
         };
 
-        let clef = syslog.to_clef();
+        let clef = syslog.into_clef();
         let actual = serde_json::to_value(clef).unwrap();
 
         assert_eq!(expected, actual);
