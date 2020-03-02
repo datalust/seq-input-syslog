@@ -159,7 +159,7 @@ mod test {
     }
 
     #[test]
-    fn syslog_to_clef__with_structured_data() {
+    fn syslog_to_clef_with_structured_data() {
         let expected = json!({
             "@l": "info",
             "@m": "hello world",
@@ -184,7 +184,6 @@ mod test {
                 facility: 3,
                 severity: 6,
             },
-            version: 1,
             timestamp: Some("2020-02-13T00:51:39.527825Z"),
             hostname: Some("docker-desktop"),
             app_name: Some("8b1089798cf8"),
