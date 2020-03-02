@@ -48,8 +48,8 @@ Invoke-DockerBuild
 
 Build-TestAppContainer
 
-Invoke-SmokeTest("udp", "rfc5424")
-Invoke-SmokeTest("udp", "rfc3164")
+Invoke-SmokeTest "udp" "rfc5424"
+Invoke-SmokeTest "udp" "rfc3164"
 
 if ($IsPublishedBuild) {
     Publish-Container (Get-SemVer $shortver)
