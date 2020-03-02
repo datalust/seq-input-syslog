@@ -41,8 +41,7 @@ impl Data {
 
     pub fn read_as_clef(&self, msg: &[u8]) -> Result<(), Error> {
         increment!(data.msg);
-        let msg = str::from_utf8(msg)?;
-        let syslog = syslog::Message::from_str(msg)?;
+        let syslog = syslog::Message::from_bytes(msg)?;
         let clef = syslog.to_clef();
         let stdout = io::stdout();
         let mut stdout = stdout.lock();
@@ -77,7 +76,6 @@ impl<'a> syslog::Message<'a> {
 
         let syslog::Message {
             priority,
-            version,
             timestamp,
             hostname,
             app_name,
@@ -90,7 +88,6 @@ impl<'a> syslog::Message<'a> {
         let mut additional = HashMap::new();
 
         additional.insert("facility", json!(priority.facility()));
-        additional.insert("version", json!(version));
         if let Some(hostname) = hostname {
             additional.insert("hostname", json!(hostname));
         }
@@ -133,7 +130,6 @@ mod test {
             "@m": "hello world",
             "@t": "2020-02-13T00:51:39.527825Z",
             "facility": "daemon",
-            "version": 1,
             "hostname": "docker-desktop",
             "app_name": "8b1089798cf8",
             "proc_id": "1481",
@@ -147,7 +143,6 @@ mod test {
                 facility: 3,
                 severity: 6,
             },
-            version: 1,
             timestamp: Some("2020-02-13T00:51:39.527825Z"),
             hostname: Some("docker-desktop"),
             app_name: Some("8b1089798cf8"),
