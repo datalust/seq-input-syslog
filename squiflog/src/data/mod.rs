@@ -162,7 +162,7 @@ mod test {
     }
 
     #[test]
-    fn syslog_to_clef__with_structured_data() {
+    fn syslog_to_clef_with_structured_data() {
         let expected = json!({
             "@l": "info",
             "@m": "hello world",

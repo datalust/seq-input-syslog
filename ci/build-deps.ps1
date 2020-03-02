@@ -211,7 +211,7 @@ function Build-TestAppContainer {
     if ($LASTEXITCODE) { exit 1 }
 }
 
-function Invoke-TestApp($protocol) {
+function Invoke-TestApp($protocol, $format) {
     Write-BeginStep $MYINVOCATION
 
     docker run `
@@ -219,6 +219,7 @@ function Invoke-TestApp($protocol) {
         -i `
         --log-driver syslog `
         --log-opt "syslog-address=${protocol}://localhost:515" `
+        --log-opt "syslog-format=${format}" `
         squiflog-app-test:latest
     if ($LASTEXITCODE) { exit 1 }
 
