@@ -1,5 +1,5 @@
 use crate::error::{Error, err_msg};
-use chrono::{Utc, DateTime, Local, Datelike, Duration, Timelike, TimeZone};
+use chrono::{Utc, DateTime, Local, Datelike, Timelike, TimeZone};
 
 pub fn priority(i: &[u8]) -> Result<(u8, &[u8]), Error> {
     let (content, rem) = delimited(i, b'<', b'>')?;
@@ -20,9 +20,13 @@ pub fn any_byte(i: &[u8]) -> Result<(u8, &[u8]), Error> {
 
 pub fn byte(i: &[u8], b: u8) -> Result<&[u8], Error> {
     if let Ok((actual, rem)) = any_byte(i) {
-        Ok(rem)
+        if actual == b {
+            Ok(rem)
+        } else {
+            Err(err_msg("unexpected byte"))
+        }
     } else {
-        Err(err_msg("unexpected byte"))
+        Err(err_msg("expected byte, unexpected end of input"))
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::error::{err_msg, Error};
 use std::{collections::HashMap, borrow::Cow};
-use chrono::{Utc, DateTime, TimeZone};
+use chrono::{Utc, DateTime};
 use crate::data::parsers;
 
 #[derive(Debug, Eq, PartialEq)]
