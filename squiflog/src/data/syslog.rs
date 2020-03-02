@@ -1,4 +1,5 @@
 use crate::error::{err_msg, Error};
+use std::collections::HashMap;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Priority {
@@ -58,6 +59,58 @@ impl Priority {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct StructuredDataElement<'a> {
+    pub id: &'a str,
+    pub param: HashMap<&'a str, &'a str>,
+}
+
+impl<'a> StructuredDataElement<'a> {
+    fn from_str(s: &'a str) -> Result<Self, Error> {
+        let mut items = s.split(" ");
+
+        let id = items.next().expect("incorrect structured data format");
+
+        let mut param_list = HashMap::<&'a str, &'a str>::new();
+
+        while let Some(param) = items.next() {
+            let mut param_items = param.split("=");
+            let param_name = param_items
+                .next()
+                .expect("incorrect structured data format - no param name");
+            let param_value = param_items
+                .next()
+                .expect("incorrect structured data format - no param value");
+            let param_value = param_value.trim_matches('\"');
+            param_list.insert(param_name, param_value);
+        }
+
+        Ok(StructuredDataElement {
+            id,
+            param: param_list,
+        })
+    }
+}
+
+struct StructuredDataList {}
+
+impl StructuredDataList {
+    fn from_str(s: &str) -> Result<Vec<StructuredDataElement>, Error> {
+        let len = s.len();
+        let s = &s[1..len - 2]; // remove starting and trailing '[' and ']'
+
+        let mut s = s.split("]["); // split on separators
+
+        let mut list = vec![];
+
+        while let Some(sd_element) = s.next() {
+            list.push(StructuredDataElement::from_str(sd_element).expect("NOPE"));
+        }
+
+        Ok(list)
+    }
+}
+
 fn filter_nil(s: &str) -> Option<&str> {
     match s {
         "-" => None,
@@ -74,7 +127,8 @@ pub struct Message<'a> {
     pub app_name: Option<&'a str>,
     pub proc_id: Option<&'a str>,
     pub message_id: Option<&'a str>,
-    pub structured_data: Option<&'a str>,
+    // pub structured_data: Option<&'a str>,
+    pub structured_data: Option<Vec<StructuredDataElement<'a>>>,
     pub message: Option<&'a str>,
 }
 
@@ -86,7 +140,7 @@ RFC5424 format:
 
 PRIVAL - a number from 0..191
 VERSION - always 1 for RFC5424
-STRUCTURED-DATA - [SDID PARAM-NAME="PARAM-VALUE"][SDID2 PARAM2-NAME="PARAM2-VALUE"]
+STRUCTURED-DATA - [SDID PARAM-NAME="PARAM-VALUE"][SDID2 PARAM2-NAME="PARAM2-VALUE" PARAM3-NAME="PARAM3-VALUE"]
 MSG - message is optional, and can contain spaces
 
 All other values are alphanumeric strings with no spaces.
@@ -172,7 +226,7 @@ impl<'a> Message<'a> {
         assert!(items.next().is_none());
 
         // structured_data - check that next string is "-" or "["
-        let mut structured_data: Option<&str> = None;
+        let mut structured_data: Option<Vec<StructuredDataElement>> = None;
         let mut structured_data_chars = sd_and_msg.char_indices();
         let mut message_idx = 2; // start after hyphen
         while let Some(item) = structured_data_chars.next() {
@@ -195,7 +249,10 @@ impl<'a> Message<'a> {
                     } else {
                         // else, end of structured data
                         // include the '[' and ']' in structured_data
-                        structured_data = Some(&sd_and_msg[..idx + 1]);
+                        // structured_data = Some(&sd_and_msg[..idx + 1]);
+                        structured_data = Some(
+                            StructuredDataList::from_str(&sd_and_msg[..idx + 1]).expect("NOPE"),
+                        );
                         message_idx = idx + 2;
                         break;
                     }
@@ -324,6 +381,11 @@ mod tests {
         // example 3 from https://tools.ietf.org/html/rfc5424
         let input = "<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] BOMAn application event log entry...\n";
 
+        let mut sd_params = HashMap::new();
+        sd_params.insert("iut", "3");
+        sd_params.insert("eventSource", "Application");
+        sd_params.insert("eventID", "1011");
+
         let expected = Message {
             priority: Priority {
                 facility: 20,
@@ -335,9 +397,10 @@ mod tests {
             app_name: Some("evntslog"),
             proc_id: None,
             message_id: Some("ID47"),
-            structured_data: Some(
-                "[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"]",
-            ),
+            structured_data: Some(vec![StructuredDataElement {
+                id: "exampleSDID@32473",
+                param: sd_params,
+            }]),
             message: Some("BOMAn application event log entry..."),
         };
 
@@ -352,15 +415,37 @@ mod tests {
 
         let input = "<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]";
 
+        let mut sd_params = HashMap::new();
+        sd_params.insert("iut", "3");
+        sd_params.insert("eventSource", "Application");
+        sd_params.insert("eventID", "1011");
+
+        let mut sd_params2 = HashMap::new();
+        sd_params2.insert("class", "high");
+
+        let sd = vec![
+            StructuredDataElement {
+                id: "exampleSDID@32473",
+                param: sd_params,
+            },
+            StructuredDataElement {
+                id: "examplePriority@32473",
+                param: sd_params2,
+            },
+        ];
+
         let expected = Message {
-            priority: Priority { facility: 20, severity: 5 },
+            priority: Priority {
+                facility: 20,
+                severity: 5,
+            },
             version: 1,
             timestamp: Some("2003-10-11T22:14:15.003Z"),
             hostname: Some("mymachine.example.com"),
             app_name: Some("evntslog"),
             proc_id: None,
             message_id: Some("ID47"),
-            structured_data: Some("[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]"),
+            structured_data: Some(sd),
             message: None,
         };
 
@@ -389,6 +474,26 @@ mod tests {
         };
 
         let actual = Message::from_str(input).expect("could not parse input for syslog");
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn structured_data_param_from_string() {
+        let input = "exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"";
+
+        let mut sd_params = HashMap::new();
+        sd_params.insert("iut", "3");
+        sd_params.insert("eventSource", "Application");
+        sd_params.insert("eventID", "1011");
+
+        let expected = StructuredDataElement {
+            id: "exampleSDID@32473",
+            param: sd_params,
+        };
+
+        let actual = StructuredDataElement::from_str(input)
+            .expect("could not parse input for structured data element");
 
         assert_eq!(expected, actual);
     }
