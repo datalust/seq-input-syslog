@@ -1,5 +1,6 @@
 use crate::error::{err_msg, Error};
-use std::collections::HashMap;
+use std::{collections::HashMap, borrow::Cow};
+use chrono::Utc;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Priority {
@@ -15,7 +16,7 @@ impl Priority {
         Priority { facility, severity }
     }
 
-    pub fn severity(&self) -> &str {
+    pub fn severity(&self) -> &'static str {
         match self.severity {
             0 => "emerg",
             1 => "alert",
@@ -28,7 +29,7 @@ impl Priority {
         }
     }
 
-    pub fn facility(&self) -> &str {
+    pub fn facility(&self) -> &'static str {
         match self.facility {
             0 => "kern",
             1 => "user",
@@ -126,9 +127,8 @@ pub struct Message<'a> {
     pub app_name: Option<&'a str>,
     pub proc_id: Option<&'a str>,
     pub message_id: Option<&'a str>,
-    // pub structured_data: Option<&'a str>,
     pub structured_data: Option<Vec<StructuredDataElement<'a>>>,
-    pub message: Option<&'a str>,
+    pub message: Option<Cow<'a, str>>,
 }
 
 /**
@@ -146,11 +146,28 @@ All other values are alphanumeric strings with no spaces.
 See https://tools.ietf.org/html/rfc5424#section-5.1 for details.
 */
 impl<'a> Message<'a> {
-    pub fn from_str(s: &'a str) -> Result<Self, Error> {
+    pub fn from_str(s: &'a str) -> Self {
         Self::from_bytes(s.as_bytes())
     }
 
-    pub fn from_bytes(s: &'a [u8]) -> Result<Self, Error> {
+    pub fn from_bytes(s: &'a [u8]) -> Self {
+        Self::from_rfc5424_bytes(s).unwrap_or_else(|_| Self::from_rfc3164_bytes(s))
+    }
+
+    pub fn from_rfc3164_bytes(s: &'a [u8]) -> Self {
+        Message {
+            priority: Priority::from_raw(13),
+            timestamp: None,
+            hostname: None,
+            app_name: None,
+            proc_id: None,
+            message_id: None,
+            structured_data: None,
+            message: Some(String::from_utf8_lossy(s)),
+        }
+    }
+
+    pub fn from_rfc5424_bytes(s: &'a [u8]) -> Result<Self, Error> {
         // split syslog string into elements up to structured data and (message)
         let mut items = s.splitn(7, |b| *b == 32u8); // split on spaces
 
@@ -268,7 +285,7 @@ impl<'a> Message<'a> {
                         structured_data = Some(
                             StructuredDataList::from_str(std::str::from_utf8(&sd_and_msg[..ii + 1])?)?,
                         );
-                        message_idx = ii + if following.is_some() { 1 } else { 2 };
+                        message_idx = ii + if following.is_some() { 2 } else { 1 };
                         break;
                     }
                 }
@@ -279,28 +296,39 @@ impl<'a> Message<'a> {
             }
         }
 
-        let mut message: Option<&str> = None;
+        let mut message: Option<&[u8]> = None;
 
         // check if there is a message
         let rest = sd_and_msg.get(message_idx..);
+        let mut is_utf8 = false;
         if let Some(mut msg) = rest {
             if msg.len() >= 3 && &msg[0..3] == b"\xEF\xBB\xBF" {
                 msg = &msg[3..];
+                is_utf8 = true;
             }
 
             if msg.len() != 0 {
-                message = Some(std::str::from_utf8(msg)?.trim_end());
+                message = Some(msg);
             }
         }
 
         fn to_str(b: Option<&[u8]>) -> Result<Option<&str>, Error> {
             if let Some(bytes) = b {
-                // When the message is not valid UTF-8 here, we might try to use a lossy conversion.
                 Ok(Some(std::str::from_utf8(bytes)?))
             } else {
                 Ok(None)
             }
         }
+
+        let message = if let Some(msg_bytes) = message {
+            if is_utf8 {
+                Some(Cow::Borrowed(std::str::from_utf8(msg_bytes)?.trim_end()))
+            } else {
+                Some(Cow::Owned(String::from_utf8_lossy(msg_bytes).trim_end().to_string()))
+            }
+        } else {
+            None
+        };
 
         Ok(Message {
             priority,
@@ -318,11 +346,12 @@ impl<'a> Message<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::borrow::Cow::{Borrowed, Owned};
 
     #[test]
     fn parse_rfc5424_syslog_message() {
         // from docker alpine
-        let input = "<30>1 2020-02-13T00:51:39.527825Z docker-desktop 8b1089798cf8 1481 8b1089798cf8 - hello world\n";
+        let input = b"<30>1 2020-02-13T00:51:39.527825Z docker-desktop 8b1089798cf8 1481 8b1089798cf8 - hello world\n";
 
         let expected = Message {
             priority: Priority {
@@ -335,19 +364,19 @@ mod tests {
             proc_id: Some("1481"),
             message_id: Some("8b1089798cf8"),
             structured_data: None,
-            message: Some("hello world"),
+            message: Some(Borrowed("hello world")),
         };
 
-        let actual = Message::from_str(input).expect("could not parse input for syslog");
+        let actual = Message::from_rfc5424_bytes(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn parse_rfc5424_syslog_should_throw_error() {
-        let input = "<30>1 2020-02-13T00:51:39\n";
+        let input = b"<30>1 2020-02-13T00:51:39\n";
 
-        let actual = Message::from_str(input);
+        let actual = Message::from_rfc5424_bytes(input);
 
         assert_eq!("missing syslog hostname", actual.unwrap_err().to_string());
     }
@@ -368,10 +397,10 @@ mod tests {
             proc_id: None,
             message_id: Some("ID47"),
             structured_data: None,
-            message: Some("’su root’ failed for lonvick on /dev/pts/8"),
+            message: Some(Borrowed("’su root’ failed for lonvick on /dev/pts/8")),
         };
 
-        let actual = Message::from_bytes(input).expect("could not parse input for syslog");
+        let actual = Message::from_rfc5424_bytes(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
@@ -379,7 +408,7 @@ mod tests {
     #[test]
     fn parse_rfc5424_syslog_specs_example_2() {
         // example 2 from https://tools.ietf.org/html/rfc5424
-        let input = "<165>1 2003-08-24T05:14:15.000003-07:00 192.0.2.1 myproc 8710 - - %% It's time to make the do-nuts.\n";
+        let input = b"<165>1 2003-08-24T05:14:15.000003-07:00 192.0.2.1 myproc 8710 - - %% It's time to make the do-nuts.\n";
 
         let expected = Message {
             priority: Priority {
@@ -392,10 +421,10 @@ mod tests {
             proc_id: Some("8710"),
             message_id: None,
             structured_data: None,
-            message: Some("%% It's time to make the do-nuts."),
+            message: Some(Borrowed("%% It's time to make the do-nuts.")),
         };
 
-        let actual = Message::from_str(input).expect("could not parse input for syslog");
+        let actual = Message::from_rfc5424_bytes(input).expect("could not parse message");
 
         assert_eq!(expected, actual);
     }
@@ -403,7 +432,7 @@ mod tests {
     #[test]
     fn parse_rfc5424_syslog_specs_example_3() {
         // example 3 from https://tools.ietf.org/html/rfc5424
-        let input = "<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] BOMAn application event log entry...\n";
+        let input = b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] \xEF\xBB\xBFAn application event log entry...\n";
 
         let mut sd_params = HashMap::new();
         sd_params.insert("iut", "3");
@@ -424,10 +453,10 @@ mod tests {
                 id: "exampleSDID@32473",
                 param: sd_params,
             }]),
-            message: Some("BOMAn application event log entry..."),
+            message: Some(Borrowed("An application event log entry...")),
         };
 
-        let actual = Message::from_str(input).expect("could not parse input for syslog");
+        let actual = Message::from_rfc5424_bytes(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
@@ -436,7 +465,7 @@ mod tests {
     fn parse_rfc5424_syslog_specs_example_4() {
         // example 4 from https://tools.ietf.org/html/rfc5424
 
-        let input = "<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]";
+        let input = b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]";
 
         let mut sd_params = HashMap::new();
         sd_params.insert("iut", "3");
@@ -471,14 +500,14 @@ mod tests {
             message: None,
         };
 
-        let actual = Message::from_str(input).expect("could not parse input for syslog");
+        let actual = Message::from_rfc5424_bytes(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn parse_rfc5424_empty_valid_syslog() {
-        let input = "<0>1 - - - - - -";
+        let input = b"<0>1 - - - - - -";
 
         let expected = Message {
             priority: Priority {
@@ -494,7 +523,7 @@ mod tests {
             message: None,
         };
 
-        let actual = Message::from_str(input).expect("could not parse input for syslog");
+        let actual = Message::from_rfc5424_bytes(input).expect("could not parse input for syslog");
 
         assert_eq!(expected, actual);
     }
