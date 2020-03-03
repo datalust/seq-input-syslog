@@ -1,6 +1,12 @@
-use crate::error::{err_msg, Error};
-use std::{collections::HashMap, borrow::Cow};
+use crate::error::{
+    err_msg,
+    Error,
+};
 use chrono::Utc;
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Priority {
@@ -60,10 +66,10 @@ impl Priority {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct StructuredDataElement<'a> {
     pub id: &'a str,
-    pub param: HashMap<&'a str, &'a str>,
+    pub param: Vec<(&'a str, &'a str)>,
 }
 
 impl<'a> StructuredDataElement<'a> {
@@ -72,7 +78,7 @@ impl<'a> StructuredDataElement<'a> {
 
         let id = items.next().expect("incorrect structured data format");
 
-        let mut param_list = HashMap::<&'a str, &'a str>::new();
+        let mut param_list = Vec::<(&'a str, &'a str)>::new();
 
         while let Some(param) = items.next() {
             let mut param_items = param.split("=");
@@ -83,7 +89,7 @@ impl<'a> StructuredDataElement<'a> {
                 .next()
                 .expect("incorrect structured data format - no param value");
             let param_value = param_value.trim_matches('\"');
-            param_list.insert(param_name, param_value);
+            param_list.push((param_name, param_value));
         }
 
         Ok(StructuredDataElement {
@@ -172,11 +178,13 @@ impl<'a> Message<'a> {
         let mut items = s.splitn(7, |b| *b == 32u8); // split on spaces
 
         // get priority, e.g. "<30>"
-        let pri_version = items.next().ok_or_else(|| err_msg("empty syslog message"))?;
+        let pri_version = items
+            .next()
+            .ok_or_else(|| err_msg("empty syslog message"))?;
         let mut priority_chars = pri_version.iter();
 
         if priority_chars.next() != Some(&b'<') {
-            return Err(err_msg("invalid message, no <"))
+            return Err(err_msg("invalid message, no <"));
         }
 
         let mut priority = None;
@@ -201,8 +209,8 @@ impl<'a> Message<'a> {
             return Err(err_msg("invalid message, version not 1"));
         }
 
-        let priority_bytes = priority
-            .ok_or_else(|| err_msg("invalid syslog priority - not a number"))?;
+        let priority_bytes =
+            priority.ok_or_else(|| err_msg("invalid syslog priority - not a number"))?;
 
         if priority_bytes.len() > 4 {
             return Err(err_msg("invalid message, priority too long"));
@@ -282,9 +290,9 @@ impl<'a> Message<'a> {
                     } else {
                         // else, end of structured data
                         // include the '[' and ']' in structured_data
-                        structured_data = Some(
-                            StructuredDataList::from_str(std::str::from_utf8(&sd_and_msg[..ii + 1])?)?,
-                        );
+                        structured_data = Some(StructuredDataList::from_str(std::str::from_utf8(
+                            &sd_and_msg[..ii + 1],
+                        )?)?);
                         message_idx = ii + if following.is_some() { 2 } else { 1 };
                         break;
                     }
@@ -324,7 +332,9 @@ impl<'a> Message<'a> {
             if is_utf8 {
                 Some(Cow::Borrowed(std::str::from_utf8(msg_bytes)?.trim_end()))
             } else {
-                Some(Cow::Owned(String::from_utf8_lossy(msg_bytes).trim_end().to_string()))
+                Some(Cow::Owned(
+                    String::from_utf8_lossy(msg_bytes).trim_end().to_string(),
+                ))
             }
         } else {
             None
@@ -346,7 +356,10 @@ impl<'a> Message<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::borrow::Cow::{Borrowed, Owned};
+    use std::borrow::Cow::{
+        Borrowed,
+        Owned,
+    };
 
     #[test]
     fn parse_rfc5424_syslog_message() {
@@ -434,10 +447,10 @@ mod tests {
         // example 3 from https://tools.ietf.org/html/rfc5424
         let input = b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] \xEF\xBB\xBFAn application event log entry...\n";
 
-        let mut sd_params = HashMap::new();
-        sd_params.insert("iut", "3");
-        sd_params.insert("eventSource", "Application");
-        sd_params.insert("eventID", "1011");
+        let mut sd_params = Vec::new();
+        sd_params.push(("iut", "3"));
+        sd_params.push(("eventSource", "Application"));
+        sd_params.push(("eventID", "1011"));
 
         let expected = Message {
             priority: Priority {
@@ -467,13 +480,13 @@ mod tests {
 
         let input = b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]";
 
-        let mut sd_params = HashMap::new();
-        sd_params.insert("iut", "3");
-        sd_params.insert("eventSource", "Application");
-        sd_params.insert("eventID", "1011");
+        let mut sd_params = Vec::new();
+        sd_params.push(("iut", "3"));
+        sd_params.push(("eventSource", "Application"));
+        sd_params.push(("eventID", "1011"));
 
-        let mut sd_params2 = HashMap::new();
-        sd_params2.insert("class", "high");
+        let mut sd_params2 = Vec::new();
+        sd_params2.push(("class", "high"));
 
         let sd = vec![
             StructuredDataElement {
@@ -532,10 +545,10 @@ mod tests {
     fn structured_data_param_from_string() {
         let input = "exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"";
 
-        let mut sd_params = HashMap::new();
-        sd_params.insert("iut", "3");
-        sd_params.insert("eventSource", "Application");
-        sd_params.insert("eventID", "1011");
+        let mut sd_params = Vec::new();
+        sd_params.push(("iut", "3"));
+        sd_params.push(("eventSource", "Application"));
+        sd_params.push(("eventID", "1011"));
 
         let expected = StructuredDataElement {
             id: "exampleSDID@32473",
