@@ -66,56 +66,10 @@ impl Priority {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct StructuredDataElement<'a> {
     pub id: &'a str,
-    pub param: Vec<(&'a str, &'a str)>,
-}
-
-impl<'a> StructuredDataElement<'a> {
-    fn from_str(s: &'a str) -> Result<Self, Error> {
-        let mut items = s.split(" ");
-
-        let id = items.next().expect("incorrect structured data format");
-
-        let mut param_list = Vec::<(&'a str, &'a str)>::new();
-
-        while let Some(param) = items.next() {
-            let mut param_items = param.split("=");
-            let param_name = param_items
-                .next()
-                .expect("incorrect structured data format - no param name");
-            let param_value = param_items
-                .next()
-                .expect("incorrect structured data format - no param value");
-            let param_value = param_value.trim_matches('\"');
-            param_list.push((param_name, param_value));
-        }
-
-        Ok(StructuredDataElement {
-            id,
-            param: param_list,
-        })
-    }
-}
-
-struct StructuredDataList {}
-
-impl StructuredDataList {
-    fn from_str(s: &str) -> Result<Vec<StructuredDataElement>, Error> {
-        let len = s.len();
-        let s = &s[1..len - 2]; // remove starting and trailing '[' and ']'
-
-        let mut s = s.split("]["); // split on separators
-
-        let mut list = vec![];
-
-        while let Some(sd_element) = s.next() {
-            list.push(StructuredDataElement::from_str(sd_element).expect("NOPE"));
-        }
-
-        Ok(list)
-    }
+    pub params: Vec<(&'a str, String)>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -130,20 +84,6 @@ pub struct Message<'a> {
     pub message: Option<Cow<'a, str>>,
 }
 
-/**
-A SYSLOG message
-
-RFC5424 format:
-<PRIVAL>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID STRUCTURED-DATA (MSG)
-
-PRIVAL - a number from 0..191
-VERSION - always 1 for RFC5424
-STRUCTURED-DATA - [SDID PARAM-NAME="PARAM-VALUE"][SDID2 PARAM2-NAME="PARAM2-VALUE" PARAM3-NAME="PARAM3-VALUE"]
-MSG - message is optional, and can contain spaces
-
-All other values are alphanumeric strings with no spaces.
-See https://tools.ietf.org/html/rfc5424#section-5.1 for details.
-*/
 impl<'a> Message<'a> {
     pub fn from_str(s: &'a str) -> Self {
         Self::from_bytes(s.as_bytes())
@@ -153,6 +93,8 @@ impl<'a> Message<'a> {
         Self::from_rfc5424_bytes(s).unwrap_or_else(|_| Self::from_rfc3164_bytes(s, &Utc::now()))
     }
 
+    // RFC3164 format: <PRIVAL>TIMESTAMP HOSTNAME TAG: (MSG)
+    // We treat the tag as part of the message.
     pub fn from_rfc3164_bytes(msg: &'a [u8], now: &DateTime<Utc>) -> Self {
         let mut unparsed = msg;
         let mut result = Message {
@@ -194,6 +136,7 @@ impl<'a> Message<'a> {
         result
     }
 
+    // RFC5424 format: <PRIVAL>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID STRUCTURED-DATA (MSG)
     pub fn from_rfc5424_bytes(msg: &'a [u8]) -> Result<Self, Error> {
         let (priority, rem) = parsers::priority(msg)?;
 
@@ -236,79 +179,49 @@ impl<'a> Message<'a> {
         let (proc_id, rem) = parsers::header_item(rem, "proc_id")?;
         result.proc_id = proc_id;
 
-        let (message_id, rem) = parsers::header_item(rem, "message_id")?;
+        let (message_id, mut rem) = parsers::header_item(rem, "message_id")?;
         result.message_id = message_id;
 
-        let sd_and_msg = rem;
-
-        // structured_data - check that next string is "-" or "["
-        let mut structured_data_chars = sd_and_msg.iter();
-        let mut message_idx = 2; // start after hyphen
-        let mut idx = 0;
-        while let Some(item) = structured_data_chars.next() {
-            match (idx, item) {
-                (0, b'-') => {
-                    // No structured data
-                    break;
+        let mut maybe_sd = parsers::structured_data_element(rem);
+        if maybe_sd.is_ok() {
+            while let Ok((sde, sd_rem)) = maybe_sd {
+                match result.structured_data {
+                    None => result.structured_data = Some(vec![sde]),
+                    Some(ref mut sd) => sd.push(sde)
                 }
-                (0, b'[') => {
-                    // Has structured data
-                    idx += 1;
-                    continue;
-                }
-                (0, _) => Err(err_msg(
-                    "invalid syslog structured data format - no leading '['",
-                ))?,
-                (ii, b']') => {
-                    let following = structured_data_chars.next();
-                    if let Some(b'[') = following {
-                        // if there is more structured data, keep going
-                        idx += 2;
-                        continue;
-                    } else {
-                        // else, end of structured data
-                        // include the '[' and ']' in structured_data
-                        result.structured_data = Some(StructuredDataList::from_str(std::str::from_utf8(
-                            &sd_and_msg[..ii + 1],
-                        )?)?);
-                        message_idx = ii + if following.is_some() { 2 } else { 1 };
-                        break;
-                    }
-                }
-                _ => {
-                    idx += 1;
-                    continue;
-                }
+                rem = sd_rem;
+                maybe_sd = parsers::structured_data_element(rem);
             }
+        } else {
+            let (_, sd_rem) = parsers::byte(rem, b'-')?;
+            rem = sd_rem;
         }
 
-        let mut message: Option<&[u8]> = None;
-
-        // check if there is a message
-        let rest = sd_and_msg.get(message_idx..);
-        let mut is_utf8 = false;
-        if let Some(mut msg) = rest {
-            if msg.len() >= 3 && &msg[0..3] == b"\xEF\xBB\xBF" {
-                msg = &msg[3..];
+        if let Ok((_, rem)) = parsers::byte(rem, b' ') {
+            let mut is_utf8 = false;
+            let mut message_bytes = rem;
+            if message_bytes.len() >= 3 && &message_bytes[..3] == b"\xEF\xBB\xBF" {
+                message_bytes = &message_bytes[3..];
                 is_utf8 = true;
             }
 
-            if msg.len() != 0 {
-                message = Some(msg);
-            }
-        }
-
-        result.message = if let Some(msg_bytes) = message {
-            if is_utf8 {
-                Some(Cow::Borrowed(std::str::from_utf8(msg_bytes)?.trim_end()))
+            result.message = if is_utf8 {
+                let trimmed = std::str::from_utf8(message_bytes)?.trim();
+                if trimmed.len() > 0 {
+                    Some(Cow::Borrowed(trimmed))
+                } else {
+                    None
+                }
             } else {
-                Some(Cow::Owned(
-                    String::from_utf8_lossy(msg_bytes).trim_end().to_string(),
-                ))
-            }
-        } else {
-            None
-        };
+                let owned = String::from_utf8_lossy(message_bytes);
+                let trimmed = owned.trim();
+                if trimmed.len() > 0 {
+                    Some(Cow::Owned(trimmed.to_owned()))
+                } else {
+                    None
+                }
+            };
+        }
 
         Ok(result)
     }
@@ -320,6 +233,17 @@ mod tests {
     use chrono::{Datelike, TimeZone};
     use crate::test_util::to_timestamp;
     use std::borrow::Cow::Borrowed;
+
+    impl<'a> StructuredDataElement<'a> {
+        fn from_str(s: &'a str) -> Result<Self, Error> {
+            let (r, rem) = parsers::structured_data_element(s.as_bytes())?;
+            if rem.len() > 0 {
+                Err(err_msg("too much input"))
+            } else {
+                Ok(r)
+            }
+        }
+    }
 
     #[test]
     fn parse_rfc5424_syslog_message() {
@@ -407,10 +331,10 @@ mod tests {
         // example 3 from https://tools.ietf.org/html/rfc5424
         let input = b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] \xEF\xBB\xBFAn application event log entry...\n";
 
-        let mut sd_params = Vec::new();
-        sd_params.push(("iut", "3"));
-        sd_params.push(("eventSource", "Application"));
-        sd_params.push(("eventID", "1011"));
+        let mut sd_params = vec![];
+        sd_params.push(("iut", "3".to_owned()));
+        sd_params.push(("eventSource", "Application".to_owned()));
+        sd_params.push(("eventID", "1011".to_owned()));
 
         let expected = Message {
             priority: Priority {
@@ -424,7 +348,7 @@ mod tests {
             message_id: Some("ID47"),
             structured_data: Some(vec![StructuredDataElement {
                 id: "exampleSDID@32473",
-                param: sd_params,
+                params: sd_params,
             }]),
             message: Some(Borrowed("An application event log entry...")),
         };
@@ -440,22 +364,22 @@ mod tests {
 
         let input = b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]";
 
-        let mut sd_params = Vec::new();
-        sd_params.push(("iut", "3"));
-        sd_params.push(("eventSource", "Application"));
-        sd_params.push(("eventID", "1011"));
+        let mut sd_params = vec![];
+        sd_params.push(("iut", "3".to_owned()));
+        sd_params.push(("eventSource", "Application".to_owned()));
+        sd_params.push(("eventID", "1011".to_owned()));
 
-        let mut sd_params2 = Vec::new();
-        sd_params2.push(("class", "high"));
+        let mut sd_params2 = vec![];
+        sd_params2.push(("class", "high".to_owned()));
 
         let sd = vec![
             StructuredDataElement {
                 id: "exampleSDID@32473",
-                param: sd_params,
+                params: sd_params,
             },
             StructuredDataElement {
                 id: "examplePriority@32473",
-                param: sd_params2,
+                params: sd_params2,
             },
         ];
 
@@ -503,16 +427,16 @@ mod tests {
 
     #[test]
     fn structured_data_param_from_string() {
-        let input = "exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"";
+        let input = "[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"]";
 
-        let mut sd_params = Vec::new();
-        sd_params.push(("iut", "3"));
-        sd_params.push(("eventSource", "Application"));
-        sd_params.push(("eventID", "1011"));
+        let mut sd_params = vec![];
+        sd_params.push(("iut", "3".to_owned()));
+        sd_params.push(("eventSource", "Application".to_owned()));
+        sd_params.push(("eventID", "1011".to_owned()));
 
         let expected = StructuredDataElement {
             id: "exampleSDID@32473",
-            param: sd_params,
+            params: sd_params,
         };
 
         let actual = StructuredDataElement::from_str(input)
