@@ -1,21 +1,21 @@
-use crate::error::{
-    err_msg,
-    Error,
+use crate::{
+    error::{
+        err_msg,
+        Error,
+    },
+    data::parsers
 };
-use chrono::Utc;
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-};
+use std::borrow::Cow;
+use chrono::{Utc, DateTime};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Priority {
-    pub facility: usize,
-    pub severity: usize,
+    pub facility: u8,
+    pub severity: u8,
 }
 
 impl Priority {
-    fn from_raw(raw: usize) -> Self {
+    fn from_raw(raw: u8) -> Self {
         let facility = raw / 8;
         let severity = raw % 8;
 
@@ -118,17 +118,10 @@ impl StructuredDataList {
     }
 }
 
-fn filter_nil(s: &[u8]) -> Option<&[u8]> {
-    match s {
-        b"-" => None,
-        _ => Some(s),
-    }
-}
-
 #[derive(Debug, Eq, PartialEq)]
 pub struct Message<'a> {
     pub priority: Priority,
-    pub timestamp: Option<&'a str>,
+    pub timestamp: Option<DateTime<Utc>>,
     pub hostname: Option<&'a str>,
     pub app_name: Option<&'a str>,
     pub proc_id: Option<&'a str>,
@@ -157,11 +150,12 @@ impl<'a> Message<'a> {
     }
 
     pub fn from_bytes(s: &'a [u8]) -> Self {
-        Self::from_rfc5424_bytes(s).unwrap_or_else(|_| Self::from_rfc3164_bytes(s))
+        Self::from_rfc5424_bytes(s).unwrap_or_else(|_| Self::from_rfc3164_bytes(s, &Utc::now()))
     }
 
-    pub fn from_rfc3164_bytes(s: &'a [u8]) -> Self {
-        Message {
+    pub fn from_rfc3164_bytes(msg: &'a [u8], now: &DateTime<Utc>) -> Self {
+        let mut unparsed = msg;
+        let mut result = Message {
             priority: Priority::from_raw(13),
             timestamp: None,
             hostname: None,
@@ -169,101 +163,85 @@ impl<'a> Message<'a> {
             proc_id: None,
             message_id: None,
             structured_data: None,
-            message: Some(String::from_utf8_lossy(s)),
-        }
-    }
+            message: None,
+        };
 
-    pub fn from_rfc5424_bytes(s: &'a [u8]) -> Result<Self, Error> {
-        // split syslog string into elements up to structured data and (message)
-        let mut items = s.splitn(7, |b| *b == 32u8); // split on spaces
+        if let Ok((priority, rem)) = parsers::priority(unparsed) {
+            result.priority = Priority::from_raw(priority);
+            unparsed = rem;
 
-        // get priority, e.g. "<30>"
-        let pri_version = items
-            .next()
-            .ok_or_else(|| err_msg("empty syslog message"))?;
-        let mut priority_chars = pri_version.iter();
+            if let Ok((timestamp, rem)) = parsers::loose_timestamp(unparsed, now) {
+                result.timestamp = Some(timestamp);
+                unparsed = rem;
 
-        if priority_chars.next() != Some(&b'<') {
-            return Err(err_msg("invalid message, no <"));
-        }
+                if let Ok((_, rem)) = parsers::byte(unparsed, b' ') {
+                    unparsed = rem;
 
-        let mut priority = None;
-        let mut version = None;
-        let mut idx = 1;
-        while let Some(item) = priority_chars.next() {
-            match item {
-                b'>' => {
-                    priority = Some(&pri_version[1..idx]);
-                    version = Some(
-                        pri_version
-                            .get(idx + 1..)
-                            .ok_or_else(|| err_msg("unexpected end of syslog header"))?,
-                    );
-                    break;
+                    if let Ok((hostname, rem)) = parsers::header_item(unparsed, "hostname") {
+                        result.hostname = hostname;
+                        unparsed = rem;
+                    }
                 }
-                _ => idx += 1,
             }
         }
 
-        if version != Some(&b"1"[..]) {
-            return Err(err_msg("invalid message, version not 1"));
+        result.message = if unparsed.len() > 0 { Some(String::from_utf8_lossy(unparsed)) } else { None };
+
+        if result.timestamp.is_none() {
+            result.timestamp = Some(now.clone())
         }
 
-        let priority_bytes =
-            priority.ok_or_else(|| err_msg("invalid syslog priority - not a number"))?;
+        result
+    }
 
-        if priority_bytes.len() > 4 {
-            return Err(err_msg("invalid message, priority too long"));
+    pub fn from_rfc5424_bytes(msg: &'a [u8]) -> Result<Self, Error> {
+        let (priority, rem) = parsers::priority(msg)?;
+
+        let mut result = Message {
+            priority: Priority::from_raw(priority),
+            timestamp: None,
+            hostname: None,
+            app_name: None,
+            proc_id: None,
+            message_id: None,
+            structured_data: None,
+            message: None,
+        };
+
+        let (version_item, rem) = parsers::header_item(rem, "version")?;
+        match version_item {
+            Some("1") => (),
+            _ => return Err(err_msg("invalid message, version not 1"))
+        };
+
+        let ts_rem;
+        let ts_attempt = parsers::iso8601_timestamp(rem);
+        if let Ok((timestamp, rem)) = ts_attempt {
+            result.timestamp = Some(timestamp);
+            ts_rem = rem;
+        } else {
+            let err = ts_attempt.unwrap_err();
+            let (_, nil_rem) = parsers::byte(rem, b'-').map_err(move |_| err)?;
+            ts_rem = nil_rem;
         }
 
-        let priority = std::str::from_utf8(&priority_bytes)?
-            .parse::<usize>()
-            .map_err(Error::from)?;
+        let (_, rem) = parsers::byte(ts_rem, b' ')?;
 
-        let priority = Priority::from_raw(priority);
+        let (hostname, rem) = parsers::header_item(rem, "hostname")?;
+        result.hostname = hostname;
 
-        // get remaining header items
+        let (app_name, rem) = parsers::header_item(rem, "app_name")?;
+        result.app_name = app_name;
 
-        let timestamp = Some(
-            items
-                .next()
-                .ok_or_else(|| err_msg("missing syslog timestamp"))?,
-        )
-        .and_then(filter_nil);
-        let hostname = Some(
-            items
-                .next()
-                .ok_or_else(|| err_msg("missing syslog hostname"))?,
-        )
-        .and_then(filter_nil);
-        let app_name = Some(
-            items
-                .next()
-                .ok_or_else(|| err_msg("missing syslog app_name"))?,
-        )
-        .and_then(filter_nil);
-        let proc_id = Some(
-            items
-                .next()
-                .ok_or_else(|| err_msg("missing syslog proc_id"))?,
-        )
-        .and_then(filter_nil);
-        let message_id = Some(
-            items
-                .next()
-                .ok_or_else(|| err_msg("missing syslog message_id"))?,
-        )
-        .and_then(filter_nil);
+        let (proc_id, rem) = parsers::header_item(rem, "proc_id")?;
+        result.proc_id = proc_id;
 
-        let sd_and_msg = items
-            .next()
-            .ok_or_else(|| err_msg("missing structured data and/or message"))?;
+        let (message_id, rem) = parsers::header_item(rem, "message_id")?;
+        result.message_id = message_id;
 
-        // Should be no more after this because splitn limits the number of possible fragments
-        assert!(items.next().is_none());
+        let sd_and_msg = rem;
 
         // structured_data - check that next string is "-" or "["
-        let mut structured_data: Option<Vec<StructuredDataElement>> = None;
         let mut structured_data_chars = sd_and_msg.iter();
         let mut message_idx = 2; // start after hyphen
         let mut idx = 0;
@@ -290,7 +268,7 @@ impl<'a> Message<'a> {
                     } else {
                         // else, end of structured data
                         // include the '[' and ']' in structured_data
-                        structured_data = Some(StructuredDataList::from_str(std::str::from_utf8(
+                        result.structured_data = Some(StructuredDataList::from_str(std::str::from_utf8(
                             &sd_and_msg[..ii + 1],
                         )?)?);
                         message_idx = ii + if following.is_some() { 2 } else { 1 };
@@ -320,15 +298,7 @@ impl<'a> Message<'a> {
             }
         }
 
-        fn to_str(b: Option<&[u8]>) -> Result<Option<&str>, Error> {
-            if let Some(bytes) = b {
-                Ok(Some(std::str::from_utf8(bytes)?))
-            } else {
-                Ok(None)
-            }
-        }
-
-        let message = if let Some(msg_bytes) = message {
+        result.message = if let Some(msg_bytes) = message {
             if is_utf8 {
                 Some(Cow::Borrowed(std::str::from_utf8(msg_bytes)?.trim_end()))
             } else {
@@ -340,26 +310,16 @@ impl<'a> Message<'a> {
             None
         };
 
-        Ok(Message {
-            priority,
-            timestamp: to_str(timestamp)?,
-            hostname: to_str(hostname)?,
-            app_name: to_str(app_name)?,
-            proc_id: to_str(proc_id)?,
-            message_id: to_str(message_id)?,
-            structured_data,
-            message,
-        })
+        Ok(result)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::borrow::Cow::{
-        Borrowed,
-        Owned,
-    };
+    use chrono::{Datelike, TimeZone};
+    use crate::test_util::to_timestamp;
+    use std::borrow::Cow::Borrowed;
 
     #[test]
     fn parse_rfc5424_syslog_message() {
@@ -371,7 +331,7 @@ mod tests {
                 facility: 3,
                 severity: 6,
             },
-            timestamp: Some("2020-02-13T00:51:39.527825Z"),
+            timestamp: to_timestamp("2020-02-13T00:51:39.527825Z"),
             hostname: Some("docker-desktop"),
             app_name: Some("8b1089798cf8"),
             proc_id: Some("1481"),
@@ -386,12 +346,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_rfc5424_syslog_should_throw_error() {
-        let input = b"<30>1 2020-02-13T00:51:39\n";
+    fn parse_rfc5424_syslog_requires_hostname() {
+        let input = b"<30>1 2020-02-13T00:51:39Z ";
 
         let actual = Message::from_rfc5424_bytes(input);
 
-        assert_eq!("missing syslog hostname", actual.unwrap_err().to_string());
+        assert_eq!("missing hostname", actual.unwrap_err().to_string());
     }
 
     #[test]
@@ -404,7 +364,7 @@ mod tests {
                 facility: 4,
                 severity: 2,
             },
-            timestamp: Some("2003-10-11T22:14:15.003Z"),
+            timestamp: to_timestamp("2003-10-11T22:14:15.003Z"),
             hostname: Some("mymachine.example.com"),
             app_name: Some("su"),
             proc_id: None,
@@ -428,7 +388,7 @@ mod tests {
                 facility: 20,
                 severity: 5,
             },
-            timestamp: Some("2003-08-24T05:14:15.000003-07:00"),
+            timestamp: to_timestamp("2003-08-24T05:14:15.000003-07:00"),
             hostname: Some("192.0.2.1"),
             app_name: Some("myproc"),
             proc_id: Some("8710"),
@@ -457,7 +417,7 @@ mod tests {
                 facility: 20,
                 severity: 5,
             },
-            timestamp: Some("2003-10-11T22:14:15.003Z"),
+            timestamp: to_timestamp("2003-10-11T22:14:15.003Z"),
             hostname: Some("mymachine.example.com"),
             app_name: Some("evntslog"),
             proc_id: None,
@@ -504,7 +464,7 @@ mod tests {
                 facility: 20,
                 severity: 5,
             },
-            timestamp: Some("2003-10-11T22:14:15.003Z"),
+            timestamp: to_timestamp("2003-10-11T22:14:15.003Z"),
             hostname: Some("mymachine.example.com"),
             app_name: Some("evntslog"),
             proc_id: None,
@@ -559,5 +519,32 @@ mod tests {
             .expect("could not parse input for structured data element");
 
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn parse_rfc3164_example_2() {
+        let input = b"<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8";
+
+        let now = Utc.ymd(2020, 10, 11).and_hms(0, 0, 0);
+        let msg = Message::from_rfc3164_bytes(input, &now);
+
+        assert_eq!(msg.priority.facility, 4);
+        assert_eq!(msg.priority.severity, 2);
+        assert_eq!(msg.timestamp.unwrap().month(), 10); // Rest depends on local timezone ":-)
+        assert_eq!(msg.hostname, Some("mymachine"));
+
+        // The 'tag' remains in the message; although we could extract 'su' as the tag, adherence to
+        // this format seems very patchy, and we're more likely to end up breaking messages that
+        // happen to include `:` by mistake.
+        assert_eq!(msg.message, Some(Borrowed("su: 'su root' failed for lonvick on /dev/pts/8")));
+    }
+
+    #[test]
+    fn parse_rfc3164_example_1() {
+        let input = b"Use the BFG!";
+
+        let msg = Message::from_rfc3164_bytes(input, &Utc::now());
+
+        assert_eq!("Use the BFG!", msg.message.unwrap());
     }
 }

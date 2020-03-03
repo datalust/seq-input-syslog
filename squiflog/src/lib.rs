@@ -16,3 +16,6 @@ pub mod error;
 pub mod config;
 pub mod data;
 pub mod server;
+
+#[cfg(test)]
+mod test_util;

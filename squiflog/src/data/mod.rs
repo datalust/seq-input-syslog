@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     io,
     str,
+    io::Write
 };
 
 use serde_json::{
@@ -11,14 +12,9 @@ use serde_json::{
 
 use crate::error::Error;
 use chrono::Utc;
-use std::borrow::Cow::{
-    self,
-    Borrowed,
-    Owned,
-};
-use std::io::Write;
 
 mod clef;
+mod parsers;
 pub mod syslog;
 
 metrics! {
@@ -127,9 +123,7 @@ impl<'a> syslog::Message<'a> {
         }
 
         clef::Message {
-            timestamp: timestamp
-                .map(|ts| Borrowed(ts))
-                .unwrap_or_else(|| Owned(Utc::now().to_rfc3339())),
+            timestamp: timestamp.unwrap_or_else(|| Utc::now()),
             level: Some(priority.severity()),
             message,
             message_template: None,
@@ -146,10 +140,8 @@ mod test {
         self,
         json,
     };
-    use std::borrow::Cow::{
-        Borrowed,
-        Owned,
-    };
+    use std::borrow::Cow::Borrowed;
+    use crate::test_util::to_timestamp;
 
     #[test]
     fn syslog_to_clef() {
@@ -171,7 +163,7 @@ mod test {
                 facility: 3,
                 severity: 6,
             },
-            timestamp: Some("2020-02-13T00:51:39.527825Z"),
+            timestamp: to_timestamp("2020-02-13T00:51:39.527825Z"),
             hostname: Some("docker-desktop"),
             app_name: Some("8b1089798cf8"),
             proc_id: Some("1481"),
@@ -211,7 +203,7 @@ mod test {
                 facility: 3,
                 severity: 6,
             },
-            timestamp: Some("2020-02-13T00:51:39.527825Z"),
+            timestamp: to_timestamp("2020-02-13T00:51:39.527825Z"),
             hostname: Some("docker-desktop"),
             app_name: Some("8b1089798cf8"),
             proc_id: Some("1481"),
@@ -254,7 +246,7 @@ mod test {
                 facility: 3,
                 severity: 6,
             },
-            timestamp: Some("2020-02-13T00:51:39.527825Z"),
+            timestamp: to_timestamp("2020-02-13T00:51:39.527825Z"),
             hostname: Some("docker-desktop"),
             app_name: Some("8b1089798cf8"),
             proc_id: Some("1481"),
