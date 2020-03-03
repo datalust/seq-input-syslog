@@ -1,9 +1,16 @@
-use std::{collections::HashMap, io, str};
+use std::{
+    collections::HashMap,
+    io,
+    str,
+    io::Write
+};
 
-use serde_json::{self, json};
+use serde_json::{
+    self,
+    json,
+};
 
 use crate::error::Error;
-use std::io::Write;
 use chrono::Utc;
 
 mod clef;
@@ -105,7 +112,13 @@ impl<'a> syslog::Message<'a> {
 
         if let Some(sd) = structured_data {
             for element in sd {
-                additional.insert(element.id, json!(element.param));
+                let mut params = Vec::<HashMap<&str, &str>>::new();
+                for (k, v) in element.param {
+                    let mut map = HashMap::new();
+                    map.insert(k, v);
+                    params.push(map);
+                }
+                additional.insert(element.id, json!(params));
             }
         }
 
@@ -123,7 +136,10 @@ impl<'a> syslog::Message<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use serde_json::{self, json};
+    use serde_json::{
+        self,
+        json,
+    };
     use std::borrow::Cow::Borrowed;
     use crate::test_util::to_timestamp;
 
@@ -173,14 +189,57 @@ mod test {
             "app_name": "8b1089798cf8",
             "proc_id": "1481",
             "message_id": "8b1089798cf8",
-            "sdid1234": { "hello": "world", "event": "value" }
+            "sdid1234": [{ "hello": "world" }, { "event": "value" }]
         });
 
         let message = "hello world";
 
-        let mut sd_params = HashMap::new();
-        sd_params.insert("hello", "world");
-        sd_params.insert("event", "value");
+        let mut sd_params = Vec::new();
+        sd_params.push(("hello", "world"));
+        sd_params.push(("event", "value"));
+
+        let syslog = syslog::Message {
+            priority: syslog::Priority {
+                facility: 3,
+                severity: 6,
+            },
+            timestamp: to_timestamp("2020-02-13T00:51:39.527825Z"),
+            hostname: Some("docker-desktop"),
+            app_name: Some("8b1089798cf8"),
+            proc_id: Some("1481"),
+            message_id: Some("8b1089798cf8"),
+            structured_data: Some(vec![syslog::StructuredDataElement {
+                id: "sdid1234",
+                param: sd_params,
+            }]),
+            message: Some(Borrowed(message)),
+        };
+
+        let clef = syslog.into_clef();
+        let actual = serde_json::to_value(clef).unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn syslog_to_clef_with_structured_data_with_duplicated_params() {
+        let expected = json!({
+            "@l": "info",
+            "@m": "hello world",
+            "@t": "2020-02-13T00:51:39.527825Z",
+            "facility": "daemon",
+            "hostname": "docker-desktop",
+            "app_name": "8b1089798cf8",
+            "proc_id": "1481",
+            "message_id": "8b1089798cf8",
+            "sdid1234": [{ "ip": "192.0.2.1" }, { "ip": "192.0.2.129" }]
+        });
+
+        let message = "hello world";
+
+        let mut sd_params = Vec::new();
+        sd_params.push(("ip", "192.0.2.1"));
+        sd_params.push(("ip", "192.0.2.129"));
 
         let syslog = syslog::Message {
             priority: syslog::Priority {

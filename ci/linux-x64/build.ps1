@@ -7,7 +7,7 @@ Push-Location "$PSScriptRoot/../../"
 
 . "./ci/build-deps.ps1"
 
-function Invoke-SmokeTest($protocol) {
+function Invoke-SmokeTest($protocol, $format) {
     Write-BeginStep $MYINVOCATION
 
     $finished = $false
@@ -15,8 +15,8 @@ function Invoke-SmokeTest($protocol) {
 
     do {
         try {
-            Start-SeqEnvironment($protocol)
-            Invoke-TestApp($protocol)
+            Start-SeqEnvironment $protocol
+            Invoke-TestApp $protocol $format
             Check-SquiflogLogs
             Check-SeqLogs
             Check-ClefOutput
@@ -48,7 +48,8 @@ Invoke-DockerBuild
 
 Build-TestAppContainer
 
-Invoke-SmokeTest("udp")
+Invoke-SmokeTest "udp" "rfc5424"
+Invoke-SmokeTest "udp" "rfc3164"
 
 if ($IsPublishedBuild) {
     Publish-Container (Get-SemVer $shortver)
