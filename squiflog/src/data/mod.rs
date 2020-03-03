@@ -112,8 +112,8 @@ impl<'a> syslog::Message<'a> {
 
         if let Some(sd) = structured_data {
             for element in sd {
-                let mut params = Vec::<HashMap<&str, &str>>::new();
-                for (k, v) in element.param {
+                let mut params = vec![];
+                for (k, v) in element.params {
                     let mut map = HashMap::new();
                     map.insert(k, v);
                     params.push(map);
@@ -194,9 +194,9 @@ mod test {
 
         let message = "hello world";
 
-        let mut sd_params = Vec::new();
-        sd_params.push(("hello", "world"));
-        sd_params.push(("event", "value"));
+        let mut sd_params = vec![];
+        sd_params.push(("hello", "world".to_owned()));
+        sd_params.push(("event", "value".to_owned()));
 
         let syslog = syslog::Message {
             priority: syslog::Priority {
@@ -210,7 +210,7 @@ mod test {
             message_id: Some("8b1089798cf8"),
             structured_data: Some(vec![syslog::StructuredDataElement {
                 id: "sdid1234",
-                param: sd_params,
+                params: sd_params,
             }]),
             message: Some(Borrowed(message)),
         };
@@ -237,9 +237,9 @@ mod test {
 
         let message = "hello world";
 
-        let mut sd_params = Vec::new();
-        sd_params.push(("ip", "192.0.2.1"));
-        sd_params.push(("ip", "192.0.2.129"));
+        let mut sd_params = vec![];
+        sd_params.push(("ip", "192.0.2.1".to_owned()));
+        sd_params.push(("ip", "192.0.2.129".to_owned()));
 
         let syslog = syslog::Message {
             priority: syslog::Priority {
@@ -253,7 +253,7 @@ mod test {
             message_id: Some("8b1089798cf8"),
             structured_data: Some(vec![syslog::StructuredDataElement {
                 id: "sdid1234",
-                param: sd_params,
+                params: sd_params,
             }]),
             message: Some(Borrowed(message)),
         };

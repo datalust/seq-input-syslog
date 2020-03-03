@@ -1,5 +1,6 @@
 use crate::error::{Error, err_msg};
 use chrono::{Utc, DateTime, Local, Datelike, Timelike, TimeZone};
+use crate::data::syslog::StructuredDataElement;
 
 type ParserResult<'a, T> = Result<(T, &'a [u8]), Error>;
 
@@ -113,6 +114,83 @@ pub fn header_item<'a>(i: &'a [u8], name: &'static str) -> ParserResult<'a, Opti
     }
 }
 
+pub fn param_value_content_char(i: &[u8]) -> ParserResult<u8> {
+    let (b, rem) = any_byte(i)?;
+    if b == b'"' {
+        Err(err_msg("no param value content char found"))
+    } else if b == b'\\' {
+        let (next, following_rem) = any_byte(rem)?;
+        if next == b'\\' || next == b'\"' || next == b']' {
+            Ok((next, following_rem))
+        } else {
+            Ok((b, rem))
+        }
+    } else {
+        Ok((b, rem))
+    }
+}
+
+pub fn structured_data_element(i: &[u8]) -> ParserResult<StructuredDataElement> {
+    let (_, rem) = byte(i, b'[')?;
+    let (id, mut rem) = sd_name(rem)?;
+
+    let mut params = vec![];
+    while let Ok((_, sp_rem)) = byte(rem, b' ') {
+        let (param, param_rem) = param(sp_rem)?;
+        params.push(param);
+        rem = param_rem;
+    }
+
+    let (_, rem) = byte(rem, b']')?;
+    Ok((StructuredDataElement{id, params}, rem))
+}
+
+pub fn param_value_content(i: &[u8]) -> ParserResult<String> {
+    let mut bytes = vec![];
+    let mut rem = i;
+    let mut maybe_content = param_value_content_char(rem);
+    while let Ok((b, rest)) = maybe_content {
+        bytes.push(b);
+        rem = rest;
+        maybe_content = param_value_content_char(rem);
+    }
+    Ok((std::str::from_utf8(&bytes[..])?.into(), rem))
+}
+
+pub fn param_value(i: &[u8]) -> ParserResult<String> {
+    let (_, rem) = byte(i, b'"')?;
+    let (content, rem) = param_value_content(rem)?;
+    let (_, rem) = byte(rem, b'"')?;
+    Ok((content, rem))
+}
+
+pub fn sd_name(i: &[u8]) -> ParserResult<&str> {
+    let disallowed: &[u8] = &b"\" ]="[..];
+    let mut rem = i;
+    let mut count = 0;
+    let mut maybe_char = any_byte(rem);
+    while let Ok((b, rest)) = maybe_char {
+        if disallowed.contains(&b) {
+            break;
+        }
+        rem = rest;
+        count += 1;
+        maybe_char = any_byte(rem);
+    }
+    if count == 0 {
+        Err(err_msg("missing param name"))
+    } else {
+        Ok((std::str::from_utf8(&i[..count])?, rem))
+    }
+}
+
+pub fn param(i: &[u8]) -> ParserResult<(&str, String)> {
+    let (name, rem) = sd_name(i)?;
+    let (_, rem) = byte(rem, b'=')?;
+    let (value, rem) = param_value(rem)?;
+    Ok(((name, value), rem))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +235,82 @@ mod tests {
         let i = b"12345";
         let (one_two, _) = until(i, b'3').expect("could not parse items");
         assert_eq!(&b"12"[..], one_two);
+    }
+
+    #[test]
+    fn double_quotes_escaped_in_param_values() {
+        let i = b"\\\"test";
+        let (b, _) = param_value_content_char(i).expect("parser failed");
+        assert_eq!(b'"' as char, b as char);
+    }
+
+    #[test]
+    fn normal_chars_as_is_in_param_values() {
+        let i = b"test";
+        let (b, _) = param_value_content_char(i).expect("parser failed");
+        assert_eq!(b't', b);
+    }
+
+    #[test]
+    fn param_value_content_excludes_closing_quotes() {
+        let i = b"text\\\"stuff\" and more";
+        let (s, _) = param_value_content(i).expect("parser failed");
+        assert_eq!("text\"stuff", s);
+    }
+
+    #[test]
+    fn invalid_escape_sequence_is_literal() {
+        let i = b"\"text\\xstuff\"";
+        let (s, _) = param_value(i).expect("parser failed");
+        assert_eq!("text\\xstuff", s);
+    }
+
+    #[test]
+    fn param_value_is_content() {
+        let i = b"\"this is a value\"";
+        let (s, _) = param_value(i).expect("parser failed");
+        assert_eq!("this is a value", s);
+    }
+
+    #[test]
+    fn param_name_must_not_be_empty() {
+        let i = b"=nothing";
+        sd_name(i).expect_err("should fail");
+    }
+
+    #[test]
+    fn param_name_is_parsed() {
+        let i = b"test=nothing";
+        let (n, _) = sd_name(i).expect("parser failed");
+        assert_eq!("test", n);
+    }
+
+    #[test]
+    fn param_name_excludes_bracket() {
+        let i = b"test]nothing";
+        let (n, _) = sd_name(i).expect("parser failed");
+        assert_eq!("test", n);
+    }
+
+    #[test]
+    fn param_is_name_value_pair() {
+        let i = b"eventSource=\"Application\"";
+        let ((name, value), _) = param(i).expect("parser failed");
+        assert_eq!("eventSource", name);
+        assert_eq!("Application", value);
+    }
+
+    #[test]
+    fn param_requires_eq_separator() {
+        let i = b"eventSource]\"Application\"";
+        param(i).expect_err("should fail");
+    }
+
+    #[test]
+    fn structured_data_elements_are_parsed() {
+        let i = b"[test name=\"value\" another=\"another value\"]";
+        let (sd, _) = structured_data_element(i).expect("parser failed");
+        assert_eq!("test", sd.id);
+        assert_eq!(2, sd.params.len());
     }
 }
