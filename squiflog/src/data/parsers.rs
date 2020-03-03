@@ -1,7 +1,9 @@
 use crate::error::{Error, err_msg};
 use chrono::{Utc, DateTime, Local, Datelike, Timelike, TimeZone};
 
-pub fn priority(i: &[u8]) -> Result<(u8, &[u8]), Error> {
+type ParserResult<'a, T> = Result<(T, &'a [u8]), Error>;
+
+pub fn priority(i: &[u8]) -> ParserResult<u8> {
     let (content, rem) = delimited(i, b'<', b'>')?;
     if content.len() == 0 || content.iter().any(|b| !char::is_digit(*b as char, 10)) {
         return Err(err_msg("invalid priority content"));
@@ -10,7 +12,7 @@ pub fn priority(i: &[u8]) -> Result<(u8, &[u8]), Error> {
     Ok((pval, rem))
 }
 
-pub fn any_byte(i: &[u8]) -> Result<(u8, &[u8]), Error> {
+pub fn any_byte(i: &[u8]) -> ParserResult<u8> {
     if i.len() == 0 {
         Err(err_msg("unexpected end of input"))
     } else {
@@ -18,10 +20,10 @@ pub fn any_byte(i: &[u8]) -> Result<(u8, &[u8]), Error> {
     }
 }
 
-pub fn byte(i: &[u8], b: u8) -> Result<&[u8], Error> {
+pub fn byte(i: &[u8], b: u8) -> ParserResult<()> {
     if let Ok((actual, rem)) = any_byte(i) {
         if actual == b {
-            Ok(rem)
+            Ok(((), rem))
         } else {
             Err(err_msg("unexpected byte"))
         }
@@ -30,7 +32,7 @@ pub fn byte(i: &[u8], b: u8) -> Result<&[u8], Error> {
     }
 }
 
-pub fn until(i: &[u8], end: u8) -> Result<(&[u8], &[u8]), Error> {
+pub fn until(i: &[u8], end: u8) -> ParserResult<&[u8]> {
     let mut rem = i;
     let mut count = 0;
     while rem.len() != 0 {
@@ -41,10 +43,10 @@ pub fn until(i: &[u8], end: u8) -> Result<(&[u8], &[u8]), Error> {
         count += 1;
     }
 
-    Err(err_msg("missing end delimiter"))
+    Err(err_msg(format!("missing end `{}` delimiter", end as char)))
 }
 
-pub fn delimited(i: &[u8], start: u8, end: u8) -> Result<(&[u8], &[u8]), Error> {
+pub fn delimited(i: &[u8], start: u8, end: u8) -> ParserResult<&[u8]> {
     let rem = i;
     if rem.len() == 0 || rem[0] != start {
         return Err(err_msg("missing start delimiter"));
@@ -60,7 +62,7 @@ pub fn delimited(i: &[u8], start: u8, end: u8) -> Result<(&[u8], &[u8]), Error> 
     Ok((content, &rem[1..]))
 }
 
-pub fn take(i: &[u8], count: usize) -> Result<(&[u8], &[u8]), Error> {
+pub fn take(i: &[u8], count: usize) -> ParserResult<&[u8]> {
     if i.len() < count {
         return Err(err_msg("the input is too short"));
     }
@@ -68,26 +70,26 @@ pub fn take(i: &[u8], count: usize) -> Result<(&[u8], &[u8]), Error> {
     Ok((&i[..count], &i[count..]))
 }
 
-pub fn iso8601_timestamp(i: &[u8]) -> Result<(DateTime<Utc>, &[u8]), Error> {
+pub fn iso8601_timestamp(i: &[u8]) -> ParserResult<DateTime<Utc>> {
     let (to_space, rem) = until(i, b' ')?; // Cheating a little here; we shouldn't need any trailing delimiter
     let maybe_ts = std::str::from_utf8(to_space)?;
     let utc = DateTime::parse_from_rfc3339(maybe_ts)?.with_timezone(&Utc);
     Ok((utc, rem))
 }
 
-pub fn loose_timestamp<'a, 'b>(i: &'a [u8], now: &'b DateTime<Utc>) -> Result<(DateTime<Utc>, &'a [u8]), Error> {
-    if let Ok((isots, rem)) = iso8601_timestamp(i) {
-        return Ok((isots, rem));
+pub fn loose_timestamp<'a, 'b>(i: &'a [u8], now: &'b DateTime<Utc>) -> ParserResult<'a, DateTime<Utc>> {
+    if let Ok((iso_ts, rem)) = iso8601_timestamp(i) {
+        return Ok((iso_ts, rem));
     }
 
-    let (mdhms, rem) = take(i, 15)?;
+    let (month_day_h_m_s, rem) = take(i, 15)?;
 
-    let cheat_and_allocate_a_year = std::str::from_utf8(mdhms)?.to_string() + " 1980";
+    let cheat_and_allocate_a_year = std::str::from_utf8(month_day_h_m_s)?.to_string() + " 1980";
     let local = Local.datetime_from_str(&cheat_and_allocate_a_year, "%h %d %H:%M:%S %Y")?;
 
-    let year_offset = if &mdhms[0..3] == &b"Dec"[..] && now.month() == 1 {
+    let year_offset = if &month_day_h_m_s[0..3] == &b"Dec"[..] && now.month() == 1 {
         - 1
-    } else if &mdhms[0..3] == &b"Jan"[..] && now.month() == 12 {
+    } else if &month_day_h_m_s[0..3] == &b"Jan"[..] && now.month() == 12 {
         1
     } else {
         0
@@ -101,9 +103,9 @@ pub fn loose_timestamp<'a, 'b>(i: &'a [u8], now: &'b DateTime<Utc>) -> Result<(D
 }
 
 // Consumes (requires) a trailing space
-pub fn header_item(i: &[u8]) -> Result<(Option<&str>, &[u8]), Error> {
-    let (content, rem) = until(i, b' ')?;
-    let rem = byte(rem, b' ')?;
+pub fn header_item<'a>(i: &'a [u8], name: &'static str) -> ParserResult<'a, Option<&'a str>> {
+    let (content, rem) = until(i, b' ').map_err(|_| err_msg(format!("missing {}", name)))?;
+    let (_, rem) = byte(rem, b' ')?;
     if &content[..] == &b"-"[..] {
         Ok((None, rem))
     } else {

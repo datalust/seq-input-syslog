@@ -113,13 +113,6 @@ impl StructuredDataList {
     }
 }
 
-fn filter_nil(s: &[u8]) -> Option<&[u8]> {
-    match s {
-        b"-" => None,
-        _ => Some(s),
-    }
-}
-
 #[derive(Debug, Eq, PartialEq)]
 pub struct Message<'a> {
     pub priority: Priority,
@@ -176,10 +169,10 @@ impl<'a> Message<'a> {
                 result.timestamp = Some(timestamp);
                 unparsed = rem;
 
-                if let Ok(rem) = parsers::byte(unparsed, b' ') {
+                if let Ok((_, rem)) = parsers::byte(unparsed, b' ') {
                     unparsed = rem;
 
-                    if let Ok((hostname, rem)) = parsers::header_item(unparsed) {
+                    if let Ok((hostname, rem)) = parsers::header_item(unparsed, "hostname") {
                         result.hostname = hostname;
                         unparsed = rem;
                     }
@@ -196,99 +189,54 @@ impl<'a> Message<'a> {
         result
     }
 
-    pub fn from_rfc5424_bytes(s: &'a [u8]) -> Result<Self, Error> {
-        // split syslog string into elements up to structured data and (message)
-        let mut items = s.splitn(7, |b| *b == 32u8); // split on spaces
+    pub fn from_rfc5424_bytes(msg: &'a [u8]) -> Result<Self, Error> {
+        let (priority, rem) = parsers::priority(msg)?;
 
-        // get priority, e.g. "<30>"
-        let pri_version = items.next().ok_or_else(|| err_msg("empty syslog message"))?;
-        let mut priority_chars = pri_version.iter();
-
-        if priority_chars.next() != Some(&b'<') {
-            return Err(err_msg("invalid message, no <"))
-        }
-
-        let mut priority = None;
-        let mut version = None;
-        let mut idx = 1;
-        while let Some(item) = priority_chars.next() {
-            match item {
-                b'>' => {
-                    priority = Some(&pri_version[1..idx]);
-                    version = Some(
-                        pri_version
-                            .get(idx + 1..)
-                            .ok_or_else(|| err_msg("unexpected end of syslog header"))?,
-                    );
-                    break;
-                }
-                _ => idx += 1,
-            }
-        }
-
-        if version != Some(&b"1"[..]) {
-            return Err(err_msg("invalid message, version not 1"));
-        }
-
-        let priority_bytes = priority
-            .ok_or_else(|| err_msg("invalid syslog priority - not a number"))?;
-
-        if priority_bytes.len() > 4 {
-            return Err(err_msg("invalid message, priority too long"));
-        }
-
-        let priority = std::str::from_utf8(&priority_bytes)?
-            .parse::<u8>()
-            .map_err(Error::from)?;
-
-        let priority = Priority::from_raw(priority);
-
-        // get remaining header items
-
-        let timestamp = if let Some(ts) = Some(
-                items
-                .next()
-                .ok_or_else(|| err_msg("missing syslog timestamp"))?
-            ).and_then(filter_nil) {
-            Some(DateTime::parse_from_rfc3339(std::str::from_utf8(ts)?.trim())?.with_timezone(&Utc))
-        } else {
-            None
+        let mut result = Message {
+            priority: Priority::from_raw(priority),
+            timestamp: None,
+            hostname: None,
+            app_name: None,
+            proc_id: None,
+            message_id: None,
+            structured_data: None,
+            message: None,
         };
 
-        let hostname = Some(
-            items
-                .next()
-                .ok_or_else(|| err_msg("missing syslog hostname"))?,
-        )
-        .and_then(filter_nil);
-        let app_name = Some(
-            items
-                .next()
-                .ok_or_else(|| err_msg("missing syslog app_name"))?,
-        )
-        .and_then(filter_nil);
-        let proc_id = Some(
-            items
-                .next()
-                .ok_or_else(|| err_msg("missing syslog proc_id"))?,
-        )
-        .and_then(filter_nil);
-        let message_id = Some(
-            items
-                .next()
-                .ok_or_else(|| err_msg("missing syslog message_id"))?,
-        )
-        .and_then(filter_nil);
+        let (version_item, rem) = parsers::header_item(rem, "version")?;
+        match version_item {
+            Some("1") => (),
+            _ => return Err(err_msg("invalid message, version not 1"))
+        };
 
-        let sd_and_msg = items
-            .next()
-            .ok_or_else(|| err_msg("missing structured data and/or message"))?;
+        let ts_rem;
+        let ts_attempt = parsers::iso8601_timestamp(rem);
+        if let Ok((timestamp, rem)) = ts_attempt {
+            result.timestamp = Some(timestamp);
+            ts_rem = rem;
+        } else {
+            let err = ts_attempt.unwrap_err();
+            let (_, nil_rem) = parsers::byte(rem, b'-').map_err(move |_| err)?;
+            ts_rem = nil_rem;
+        }
 
-        // Should be no more after this because splitn limits the number of possible fragments
-        assert!(items.next().is_none());
+        let (_, rem) = parsers::byte(ts_rem, b' ')?;
+
+        let (hostname, rem) = parsers::header_item(rem, "hostname")?;
+        result.hostname = hostname;
+
+        let (app_name, rem) = parsers::header_item(rem, "app_name")?;
+        result.app_name = app_name;
+
+        let (proc_id, rem) = parsers::header_item(rem, "proc_id")?;
+        result.proc_id = proc_id;
+
+        let (message_id, rem) = parsers::header_item(rem, "message_id")?;
+        result.message_id = message_id;
+
+        let sd_and_msg = rem;
 
         // structured_data - check that next string is "-" or "["
-        let mut structured_data: Option<Vec<StructuredDataElement>> = None;
         let mut structured_data_chars = sd_and_msg.iter();
         let mut message_idx = 2; // start after hyphen
         let mut idx = 0;
@@ -315,7 +263,7 @@ impl<'a> Message<'a> {
                     } else {
                         // else, end of structured data
                         // include the '[' and ']' in structured_data
-                        structured_data = Some(
+                        result.structured_data = Some(
                             StructuredDataList::from_str(std::str::from_utf8(&sd_and_msg[..ii + 1])?)?,
                         );
                         message_idx = ii + if following.is_some() { 2 } else { 1 };
@@ -345,15 +293,7 @@ impl<'a> Message<'a> {
             }
         }
 
-        fn to_str(b: Option<&[u8]>) -> Result<Option<&str>, Error> {
-            if let Some(bytes) = b {
-                Ok(Some(std::str::from_utf8(bytes)?))
-            } else {
-                Ok(None)
-            }
-        }
-
-        let message = if let Some(msg_bytes) = message {
+        result.message = if let Some(msg_bytes) = message {
             if is_utf8 {
                 Some(Cow::Borrowed(std::str::from_utf8(msg_bytes)?.trim_end()))
             } else {
@@ -363,16 +303,7 @@ impl<'a> Message<'a> {
             None
         };
 
-        Ok(Message {
-            priority,
-            timestamp,
-            hostname: to_str(hostname)?,
-            app_name: to_str(app_name)?,
-            proc_id: to_str(proc_id)?,
-            message_id: to_str(message_id)?,
-            structured_data,
-            message,
-        })
+        Ok(result)
     }
 }
 
@@ -409,13 +340,11 @@ mod tests {
 
     #[test]
     fn parse_rfc5424_syslog_requires_hostname() {
-        // To do - there's a slight bug here, if an extra space is inserted after 'Z' then the
-        // host name will end up empty, and an error reported for app_name.
-        let input = b"<30>1 2020-02-13T00:51:39Z";
+        let input = b"<30>1 2020-02-13T00:51:39Z ";
 
         let actual = Message::from_rfc5424_bytes(input);
 
-        assert_eq!("missing syslog hostname", actual.unwrap_err().to_string());
+        assert_eq!("missing hostname", actual.unwrap_err().to_string());
     }
 
     #[test]
