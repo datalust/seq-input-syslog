@@ -6,7 +6,7 @@ Ingest Syslog [RFC 5424](https://tools.ietf.org/html/rfc5424) and [RFC 3164](htt
 
 On Windows, the Syslog input is installed into Seq as a [Seq App](https://docs.getseq.net/docs/installing-seq-apps).
 
-![Seq GELF input](https://raw.githubusercontent.com/datalust/sqelf/master/asset/app-screenshot.png)
+![Seq syslog input](https://raw.githubusercontent.com/datalust/squiflog/master/asset/app-screenshot.png)
 
 **1. Install the app package**
 
