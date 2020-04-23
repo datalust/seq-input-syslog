@@ -1,10 +1,12 @@
 # `squiflog`
 
-Ingest Syslog [RFC 5424](https://tools.ietf.org/html/rfc5424) and [RFC 3164](https://tools.ietf.org/html/rfc3164) messages via UDP into [Seq](https://datalust.co/seq). The app is packaged both as a plug-in [Seq App for all platforms](https://nuget.org/packages/seq.input.syslog), and as a standalone Docker container that forwards events to Seq via its HTTP API.
+Ingest syslog [RFC 5424](https://tools.ietf.org/html/rfc5424) and [RFC 3164](https://tools.ietf.org/html/rfc3164) messages via UDP into [Seq](https://datalust.co/seq).
+
+The app is packaged both as a plug-in [Seq App for all platforms](https://nuget.org/packages/seq.input.syslog), and as a standalone Docker container that forwards events to Seq via its HTTP API.
 
 ## Getting started on Windows (requires Seq 5.1+)
 
-On Windows, the Syslog input is installed into Seq as a [Seq App](https://docs.getseq.net/docs/installing-seq-apps).
+On Windows, the syslog input is installed into Seq as a [Seq App](https://docs.getseq.net/docs/installing-seq-apps).
 
 ![Seq syslog input](https://raw.githubusercontent.com/datalust/squiflog/master/asset/app-screenshot.png)
 
@@ -14,9 +16,9 @@ In _Settings_ > _Apps_, choose _Install from NuGet_. The app package id is [Seq.
 
 **2. Start an instance of the app**
 
-From the apps screen, choose _Add Instance_ and give the new Syslog input a name.
+From the apps screen, choose _Add Instance_ and give the new syslog input a name.
 
-The default settings will cause the GELF input to listen on localhost port 514. Choose a different port if required.
+The default settings will cause the syslog input to listen on localhost port 514. Choose a different port if required.
 
 Select _Save Changes_ to start the input.
 
@@ -32,7 +34,7 @@ Events ingested by the input will be associated with the default _None_ [API key
 
 ## Getting started with Docker (all versions)
 
-For Docker, the app is deployed as a Docker container that is expected to run alongside the Seq container. The `datalust/squiflog` container accepts Syslog messages (via UDP on port 514 by default), and forwards them to the Seq ingestion endpoint specified in the `SEQ_ADDRESS` environment variable.
+For Docker, the app is deployed as a Docker container that is expected to run alongside the Seq container. The `datalust/squiflog` container accepts syslog messages (via UDP on port 514 by default), and forwards them to the Seq ingestion endpoint specified in the `SEQ_ADDRESS` environment variable.
 
 To run the container:
 
@@ -49,13 +51,13 @@ The container is published on Docker Hub as [`datalust/squiflog`](https://hub.do
 
 ### Container configuration
 
-A `sqelf` container can be configured using the following environment variables:
+A `squiflog` container can be configured using the following environment variables:
 
 | Variable | Description | Default |
 | -------- | ----------- | ------- |
 | `SEQ_ADDRESS`| The address of the Seq server to forward events to | `http://localhost:5341` |
 | `SEQ_API_KEY` | The API key to use | - |
-| `SYSLOG_ADDRESS` | The address to bind the syslog server to | `udp://0.0.0.0:12201` |
+| `SYSLOG_ADDRESS` | The address to bind the syslog server to | `udp://0.0.0.0:514` |
 | `SYSLOG_ENABLE_DIAGNOSTICS` | Whether to enable diagnostic logs and metrics (accepts `True` or `False`) | `False` |
 
 ### Collecting Docker container logs
