@@ -34,7 +34,7 @@ Events ingested by the input will be associated with the default _None_ [API key
 
 ## Getting started with Docker (all versions)
 
-For Docker, the app is deployed as a Docker container that is expected to run alongside the Seq container. The `datalust/squiflog` container accepts syslog messages (via UDP on port 514 by default), and forwards them to the Seq ingestion endpoint specified in the `SEQ_ADDRESS` environment variable.
+For Docker, the app is deployed as a Docker container that is expected to run alongside the Seq container. The `datalust/seq-input-syslog` container accepts syslog messages (via UDP on port 514 by default), and forwards them to the Seq ingestion endpoint specified in the `SEQ_ADDRESS` environment variable.
 
 To run the container:
 
@@ -43,15 +43,15 @@ $ docker run \
     --rm \
     -it \
     -p 514:514/udp \
-    -e SEQ_ADDRESS=https://seq.example.com \
-    datalust/squiflog
+    -e SEQ_ADDRESS=https://seq.example.com:5341 \
+    datalust/seq-input-syslog
 ```
 
-The container is published on Docker Hub as [`datalust/squiflog`](https://hub.docker.com/r/datalust/squiflog).
+The container is published on Docker Hub as [`datalust/seq-input-syslog`](https://hub.docker.com/r/datalust/seq-input-syslog), previously [`datalust/squiflog` (still updated, for backwards-compatibility)](https://hub.docker.com/r/datalust/squiflog).
 
 ### Container configuration
 
-A `squiflog` container can be configured using the following environment variables:
+A `seq-input-syslog` container can be configured using the following environment variables:
 
 | Variable | Description | Default |
 | -------- | ----------- | ------- |
@@ -69,10 +69,10 @@ $ docker run \
     --rm \
     -it \
     --log-driver syslog \
-    --log-opt syslog-address=udp://squiflog.example.com:514 \
+    --log-opt syslog-address=udp://seq-input-syslog.example.com:514 \
     --log-opt syslog-format=rfc5424 \
     my-app:latest
 ```
-In this case the `syslog-address` option needs to resolve to the running `squiflog` container.
+In this case the `syslog-address` option needs to resolve to the running `seq-input-syslog` container.
 
-Note, providing the `--log-opt syslog-format=rfc5424` enables the stricter and more informative RFC 5424 Syslog format. Leaving this unset may default to the earlier RFC 3164 format.
+**Important note:** providing the `--log-opt syslog-format=rfc5424` enables the stricter and more informative RFC 5424 Syslog format. Leaving this unset may default to the earlier RFC 3164 format.
