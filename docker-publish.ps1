@@ -9,7 +9,7 @@ $major = $versionParts[0]
 $minor = $versionParts[1]
 
 $baseImage = "datalust/squiflog-ci:$version"
-$publishImages = "datalust/squiflog:latest", "datalust/squiflog:$major", "datalust/squiflog:$major.$minor", "datalust/squiflog:$version"
+$publishImages = "datalust/squiflog:latest", "datalust/squiflog:$major", "datalust/squiflog:$major.$minor", "datalust/squiflog:$version, datalust/seq-input-syslog:latest", "datalust/seq-input-syslog:$major", "datalust/seq-input-syslog:$major.$minor", "datalust/seq-input-syslog:$version"
 
 $choices  = "&Yes", "&No"
 $decision = $Host.UI.PromptForChoice("Publishing ($baseImage) as ($publishImages)", "Does this look right?", $choices, 1)
