@@ -9,7 +9,7 @@
     <language>en-US</language>
     <projectUrl>https://github.com/datalust/squiflog</projectUrl>
     <licenseUrl>http://www.apache.org/licenses/LICENSE-2.0</licenseUrl>
-    <iconUrl>https://raw.githubusercontent.com/datalust/squiflog/master/asset/seq-input-syslog.png</iconUrl>
+    <iconUrl>https://raw.githubusercontent.com/datalust/squiflog/release/asset/seq-input-syslog.png</iconUrl>
     <tags>seq-app</tags>
   </metadata>
   <files>

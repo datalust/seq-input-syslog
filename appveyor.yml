@@ -36,7 +36,7 @@ for:
     skip_symbols: true
     artifact: /Seq.Input.Syslog.*\.nupkg/
     on:
-      branch: /^(master|dev|release/.*)$/
+      branch: /^(dev|release/.*)$/
 -
   matrix:
     only:

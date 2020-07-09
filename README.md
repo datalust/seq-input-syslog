@@ -8,7 +8,7 @@ The app is packaged both as a plug-in [Seq App for all platforms](https://nuget.
 
 On Windows, the syslog input is installed into Seq as a [Seq App](https://docs.getseq.net/docs/installing-seq-apps).
 
-![Seq syslog input](https://raw.githubusercontent.com/datalust/squiflog/master/asset/app-screenshot.png)
+![Seq syslog input](https://raw.githubusercontent.com/datalust/squiflog/release/asset/app-screenshot.png)
 
 **1. Install the app package**
 
