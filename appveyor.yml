@@ -7,7 +7,7 @@ test: off
 
 environment:
   CLI_VERSION: '5.1.274'
-  RUST_TOOLCHAIN: '1.41.0'
+  RUST_TOOLCHAIN: '1.53.0'
   DOCKER_TOKEN:
    secure: QKr2YEuliXdFKe3jN7w97w==
   DOCKER_USER:
