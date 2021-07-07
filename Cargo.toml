@@ -1,2 +1,5 @@
 [workspace]
 members = ["squiflog"]
+
+[profile.release]
+debug = true

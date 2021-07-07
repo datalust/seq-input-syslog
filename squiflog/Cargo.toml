@@ -6,32 +6,29 @@ edition = "2018"
 license = "Apache-2.0"
 
 [dependencies]
-serde = "1.0.104"
-serde_json = "1.0.48"
-serde_derive = "1.0.104"
-inlinable_string = "0.1.11"
-string_cache = "0.8.0"
-bytes = "0.5.4"
-lazy_static = "1.4.0"
-libflate = "0.1.27"
+serde = "1"
+serde_json = "1"
+serde_derive = "1"
+inlinable_string = "0.1"
+string_cache = "0.8"
+bytes = "1"
+lazy_static = "1.4"
+libflate = "0.1"
 
 [dependencies.chrono]
- version = "0.4.10"
+ version = "0.4"
  features = ["serde"]
 
 [dependencies.futures]
-version = "0.3.4"
+version = "0.3"
 
 [dependencies.pin-utils]
 version = "0.1.0-alpha.4"
 
 [dependencies.tokio]
-version = "0.2.0"
-features = ["signal", "sync", "net", "time", "stream"]
+version = "1"
+features = ["signal", "sync", "net", "time", "rt", "rt-multi-thread"]
 
 [dependencies.tokio-util]
-version = "0.2.0"
-features = ["codec", "udp"]
-
-[profile.release]
-debug = true
+version = "0.6"
+features = ["codec", "net"]

@@ -37,6 +37,10 @@ impl Decoder for Decode {
         // Split the Bytes mut into two components, and freeze the first one (initialised part, into a Bytes non-mut)
         let src = src.split_to(src.len()).freeze();
 
+        if src.is_empty() {
+            return Ok(None);
+        }
+
         Ok(Some(src))
     }
 }
