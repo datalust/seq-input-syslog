@@ -1,4 +1,4 @@
-# `squiflog`
+# `Seq.Input.Syslog` and `datalust/seq-input-syslog`
 
 Ingest syslog [RFC 5424](https://tools.ietf.org/html/rfc5424) and [RFC 3164](https://tools.ietf.org/html/rfc3164) messages via UDP into [Seq](https://datalust.co/seq).
 
