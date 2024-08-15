@@ -75,4 +75,4 @@ $ docker run \
 ```
 In this case the `syslog-address` option needs to resolve to the running `seq-input-syslog` container.
 
-**Important note:** providing the `--log-opt syslog-format=rfc5424` enables the stricter and more informative RFC 5424 Syslog format. Leaving this unset may default to the earlier RFC 3164 format.
+**Important note:** providing the `--log-opt syslog-format=rfc5424` enables the stricter and more informative RFC 5424 syslog format. Leaving this unset may default to the earlier RFC 3164 format.
