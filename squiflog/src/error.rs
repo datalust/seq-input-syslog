@@ -1,4 +1,7 @@
-use std::{error, fmt};
+use std::{
+    error,
+    fmt,
+};
 
 pub struct Error(Inner);
 

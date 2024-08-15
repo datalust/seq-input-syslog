@@ -1,8 +1,20 @@
-use std::{marker::Unpin, str::FromStr};
+use std::{
+    marker::Unpin,
+    str::FromStr,
+};
 
-use futures::{future::BoxFuture, select, FutureExt, StreamExt};
+use futures::{
+    future::BoxFuture,
+    select,
+    FutureExt,
+    StreamExt,
+};
 
-use tokio::{runtime::Runtime, signal::ctrl_c, sync::oneshot};
+use tokio::{
+    runtime::Runtime,
+    signal::ctrl_c,
+    sync::oneshot,
+};
 
 use bytes::Bytes;
 

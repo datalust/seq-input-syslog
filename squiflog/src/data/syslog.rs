@@ -1,12 +1,15 @@
 use crate::{
+    data::parsers,
     error::{
         err_msg,
         Error,
     },
-    data::parsers
+};
+use chrono::{
+    DateTime,
+    Utc,
 };
 use std::borrow::Cow;
-use chrono::{Utc, DateTime};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Priority {
@@ -127,7 +130,11 @@ impl<'a> Message<'a> {
             }
         }
 
-        result.message = if unparsed.len() > 0 { Some(String::from_utf8_lossy(unparsed)) } else { None };
+        result.message = if unparsed.len() > 0 {
+            Some(String::from_utf8_lossy(unparsed))
+        } else {
+            None
+        };
 
         if result.timestamp.is_none() {
             result.timestamp = Some(now.clone())
@@ -154,7 +161,7 @@ impl<'a> Message<'a> {
         let (version_item, rem) = parsers::header_item(rem, "version")?;
         match version_item {
             Some("1") => (),
-            _ => return Err(err_msg("invalid message, version not 1"))
+            _ => return Err(err_msg("invalid message, version not 1")),
         };
 
         let ts_rem;
@@ -187,7 +194,7 @@ impl<'a> Message<'a> {
             while let Ok((sde, sd_rem)) = maybe_sd {
                 match result.structured_data {
                     None => result.structured_data = Some(vec![sde]),
-                    Some(ref mut sd) => sd.push(sde)
+                    Some(ref mut sd) => sd.push(sde),
                 }
                 rem = sd_rem;
                 maybe_sd = parsers::structured_data_element(rem);
@@ -230,8 +237,11 @@ impl<'a> Message<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{Datelike, TimeZone};
     use crate::test_util::to_timestamp;
+    use chrono::{
+        Datelike,
+        TimeZone,
+    };
     use std::borrow::Cow::Borrowed;
 
     impl<'a> StructuredDataElement<'a> {
@@ -449,7 +459,7 @@ mod tests {
     fn parse_rfc3164_example_2() {
         let input = b"<34>Oct 11 22:14:15 mymachine su: 'su root' failed for lonvick on /dev/pts/8";
 
-        let now = Utc.ymd(2020, 10, 11).and_hms(0, 0, 0);
+        let now = Utc.with_ymd_and_hms(2020, 10, 11, 0, 0, 0).unwrap();
         let msg = Message::from_rfc3164_bytes(input, &now);
 
         assert_eq!(msg.priority.facility, 4);
@@ -460,7 +470,10 @@ mod tests {
         // The 'tag' remains in the message; although we could extract 'su' as the tag, adherence to
         // this format seems very patchy, and we're more likely to end up breaking messages that
         // happen to include `:` by mistake.
-        assert_eq!(msg.message, Some(Borrowed("su: 'su root' failed for lonvick on /dev/pts/8")));
+        assert_eq!(
+            msg.message,
+            Some(Borrowed("su: 'su root' failed for lonvick on /dev/pts/8"))
+        );
     }
 
     #[test]

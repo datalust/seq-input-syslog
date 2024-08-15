@@ -1,14 +1,26 @@
 use std::net::SocketAddr;
 
-use crate::{diagnostics::*, error::Error};
+use crate::{
+    diagnostics::*,
+    error::Error,
+};
 
-use bytes::{Bytes, BytesMut};
+use bytes::{
+    Bytes,
+    BytesMut,
+};
 
-use futures::{Stream, StreamExt};
+use futures::{
+    Stream,
+    StreamExt,
+};
 
 use tokio::net::UdpSocket;
 
-use tokio_util::{codec::Decoder, udp::UdpFramed};
+use tokio_util::{
+    codec::Decoder,
+    udp::UdpFramed,
+};
 
 pub(super) struct Server(UdpSocket);
 
