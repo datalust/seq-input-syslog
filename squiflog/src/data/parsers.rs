@@ -1,6 +1,17 @@
-use crate::error::{Error, err_msg};
-use chrono::{Utc, DateTime, Local, Datelike, Timelike, TimeZone};
 use crate::data::syslog::StructuredDataElement;
+use crate::error::{
+    err_msg,
+    Error,
+};
+use chrono::{
+    DateTime,
+    Datelike,
+    Local,
+    NaiveDateTime,
+    TimeZone,
+    Timelike,
+    Utc,
+};
 
 type ParserResult<'a, T> = Result<(T, &'a [u8]), Error>;
 
@@ -78,7 +89,10 @@ pub fn iso8601_timestamp(i: &[u8]) -> ParserResult<DateTime<Utc>> {
     Ok((utc, rem))
 }
 
-pub fn loose_timestamp<'a, 'b>(i: &'a [u8], now: &'b DateTime<Utc>) -> ParserResult<'a, DateTime<Utc>> {
+pub fn loose_timestamp<'a, 'b>(
+    i: &'a [u8],
+    now: &'b DateTime<Utc>,
+) -> ParserResult<'a, DateTime<Utc>> {
     if let Ok((iso_ts, rem)) = iso8601_timestamp(i) {
         return Ok((iso_ts, rem));
     }
@@ -86,18 +100,28 @@ pub fn loose_timestamp<'a, 'b>(i: &'a [u8], now: &'b DateTime<Utc>) -> ParserRes
     let (month_day_h_m_s, rem) = take(i, 15)?;
 
     let cheat_and_allocate_a_year = std::str::from_utf8(month_day_h_m_s)?.to_string() + " 1980";
-    let local = Local.datetime_from_str(&cheat_and_allocate_a_year, "%h %d %H:%M:%S %Y")?;
+    let local = NaiveDateTime::parse_from_str(&cheat_and_allocate_a_year, "%h %d %H:%M:%S %Y")?
+        .and_local_timezone(Local)
+        .unwrap();
 
     let year_offset = if &month_day_h_m_s[0..3] == &b"Dec"[..] && now.month() == 1 {
-        - 1
+        -1
     } else if &month_day_h_m_s[0..3] == &b"Jan"[..] && now.month() == 12 {
         1
     } else {
         0
     };
 
-    let with_year = Local.ymd(now.year() + year_offset, local.month(), local.day())
-        .and_hms(local.hour(), local.minute(), local.second());
+    let with_year = Local
+        .with_ymd_and_hms(
+            now.year() + year_offset,
+            local.month(),
+            local.day(),
+            local.hour(),
+            local.minute(),
+            local.second(),
+        )
+        .unwrap();
 
     let utc = with_year.with_timezone(&Utc);
     Ok((utc, rem))
@@ -142,7 +166,7 @@ pub fn structured_data_element(i: &[u8]) -> ParserResult<StructuredDataElement> 
     }
 
     let (_, rem) = byte(rem, b']')?;
-    Ok((StructuredDataElement{id, params}, rem))
+    Ok((StructuredDataElement { id, params }, rem))
 }
 
 pub fn param_value_content(i: &[u8]) -> ParserResult<String> {
@@ -205,10 +229,18 @@ mod tests {
 
     #[test]
     fn delimited_rejects_invalid_content() {
-        let cases = [&b"(test"[..], &b"test)"[..], &b" "[..], &b""[..], &b"("[..], &b")"[..]].to_vec();
+        let cases = [
+            &b"(test"[..],
+            &b"test)"[..],
+            &b" "[..],
+            &b""[..],
+            &b"("[..],
+            &b")"[..],
+        ]
+        .to_vec();
         for case in cases {
             let expect_err = delimited(case, b'(', b')');
-            assert!(expect_err.is_err(), case);
+            assert!(expect_err.is_err());
         }
     }
 

@@ -1,6 +1,12 @@
-use std::{borrow::Cow, collections::HashMap};
+use chrono::{
+    DateTime,
+    Utc,
+};
 use serde_json::Value;
-use chrono::{DateTime, Utc};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Message<'a> {

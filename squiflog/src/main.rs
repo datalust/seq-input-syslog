@@ -1,12 +1,24 @@
 extern crate squiflog;
 
 use bytes::Bytes;
-use std::{any::Any, io::Read, panic::catch_unwind, thread};
+use std::{
+    any::Any,
+    io::Read,
+    panic::catch_unwind,
+    thread,
+};
 
 use squiflog::{
-    config::{self, Config},
+    config::{
+        self,
+        Config,
+    },
     data,
-    diagnostics::{self, emit, emit_err},
+    diagnostics::{
+        self,
+        emit,
+        emit_err,
+    },
     error::Error,
     server,
 };
