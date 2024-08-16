@@ -14,7 +14,8 @@
   </metadata>
   <files>
     <file src="seq-input-syslog.d.json" target="" />
-    <file src="target\x86_64-pc-windows-msvc\release\squiflog.exe" target="win-x64" />
-    <file src="target\x86_64-unknown-linux-musl\release\squiflog" target="linux-x64\squiflog" />
+    <file src="target/x86_64-pc-windows-msvc/release/squiflog.exe" target="win-x64" />
+    <file src="target/x86_64-unknown-linux-musl/release/squiflog" target="linux-x64/squiflog" />
+    <file src="target/aarch64-unknown-linux-musl/release/squiflog" target="linux-arm64/squiflog" />
   </files>
 </package>

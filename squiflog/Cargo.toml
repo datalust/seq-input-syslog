@@ -23,12 +23,12 @@ libflate = "0.1"
 version = "0.3"
 
 [dependencies.pin-utils]
-version = "0.1.0-alpha.4"
+version = "0.1"
 
 [dependencies.tokio]
 version = "1"
 features = ["signal", "sync", "net", "time", "rt", "rt-multi-thread"]
 
 [dependencies.tokio-util]
-version = "0.6"
+version = "0.7"
 features = ["codec", "net"]

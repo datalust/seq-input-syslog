@@ -1,8 +1,8 @@
 use std::{
     collections::HashMap,
     io,
+    io::Write,
     str,
-    io::Write
 };
 
 use serde_json::{
@@ -136,12 +136,12 @@ impl<'a> syslog::Message<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::test_util::to_timestamp;
     use serde_json::{
         self,
         json,
     };
     use std::borrow::Cow::Borrowed;
-    use crate::test_util::to_timestamp;
 
     #[test]
     fn syslog_to_clef() {

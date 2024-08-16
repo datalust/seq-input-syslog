@@ -6,8 +6,8 @@ image:
 test: off
 
 environment:
-  CLI_VERSION: '5.1.274'
-  RUST_TOOLCHAIN: '1.53.0'
+  CLI_VERSION: '2024.3.873'
+  RUST_TOOLCHAIN: '1.80.0'
   DOCKER_TOKEN:
    secure: QKr2YEuliXdFKe3jN7w97w==
   DOCKER_USER:
@@ -32,7 +32,7 @@ for:
   deploy:
   - provider: NuGet
     api_key:
-      secure: gY0WYVg5+Cgr83nsqbIeHkQa1icLD+MMsimgITGny0Ix3EWrE+ykWdGOEp/ByuYR
+      secure: kpqwuq5o4VPX6bcnNkpF8z2rUQ2P4z3A4GcHG21Z/Rz9hAlJ/Qfaf1479VE+hADW
     skip_symbols: true
     artifact: /Seq.Input.Syslog.*\.nupkg/
     on:

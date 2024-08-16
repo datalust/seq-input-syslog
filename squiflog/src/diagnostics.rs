@@ -4,16 +4,26 @@ use std::{
     ops::Drop,
     str::FromStr,
     sync::{
-        atomic::{AtomicUsize, Ordering},
-        mpsc, Mutex,
+        atomic::{
+            AtomicUsize,
+            Ordering,
+        },
+        mpsc,
+        Mutex,
     },
     thread,
     time::Duration,
 };
 
-use chrono::{DateTime, Utc};
+use chrono::{
+    DateTime,
+    Utc,
+};
 
-use crate::error::{err_msg, Error};
+use crate::error::{
+    err_msg,
+    Error,
+};
 
 pub(crate) static MIN_LEVEL: MinLevel = MinLevel(AtomicUsize::new(0));
 
