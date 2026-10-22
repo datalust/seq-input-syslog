@@ -1,6 +1,3 @@
-$IsCIBuild = $null -ne $env:APPVEYOR_BUILD_NUMBER
-$IsPublishedBuild = $IsCIBuild -and $null -eq $env:APPVEYOR_PULL_REQUEST_HEAD_REPO_BRANCH
-
 function Write-BeginStep($invocation)
 {
     Write-Output ""
@@ -13,16 +10,18 @@ function Write-BeginStep($invocation)
     Write-Output ""
 }
 
-function Get-SemVer($shortver)
+function Get-SemVer()
 {
-    # This script originally (c) 2016 Serilog Contributors - license Apache 2.0
-    $branch = @{ $true = $env:APPVEYOR_REPO_BRANCH; $false = $(git symbolic-ref --short -q HEAD) }[$env:APPVEYOR_REPO_BRANCH -ne $NULL];
-    $suffix = @{ $true = ""; $false = ($branch.Substring(0, [math]::Min(10,$branch.Length)) -replace '[\/\+]','-').Trim("-")}[$branch -eq "release"]
+    $branch = @{ $true = $env:CI_TARGET_BRANCH; $false = $(git symbolic-ref --short -q HEAD) }[$NULL -ne $env:CI_TARGET_BRANCH];
+    $revision = @{ $true = "{0:00000}" -f $([convert]::ToInt32($env:CI_BUILD_NUMBER_BASE, 10) + 100); $false = "local" }[$NULL -ne $env:CI_BUILD_NUMBER_BASE]
+    $suffix = @{ $true = ""; $false = "$($branch.Substring(0, [math]::Min(10,$branch.Length)) -replace '([^a-zA-Z0-9\-]*)', '')-$revision"}[$branch -eq "release" -and $revision -ne "local"]
+
+    $base = $(Get-Content ./baseversion).Trim()
 
     if ($suffix) {
-        $shortver + "-" + $suffix
+        $base + "." + $revision + "-" + $suffix
     } else {
-        $shortver
+        $base + "." + $revision
     }
 }
 
@@ -33,7 +32,7 @@ function Run-Command
     # For commands that treat stderr like stdetc
     $out = New-TemporaryFile
     $err = New-TemporaryFile
-    $r = Start-Process $Exe -ArgumentList $ArgumentList -Wait -PassThru -RedirectStandardOut $out.FullName -RedirectStandardError $err.FullName
+    $r = Start-Process $Exe -ArgumentList $ArgumentList -Wait -PassThru -RedirectStandardOut $out.FullName -RedirectStandardError $err.FullName -NoNewWindow
 
     Write-Output "STDOUT"
     Get-Content -Path $out.FullName
@@ -106,6 +105,25 @@ function Invoke-NuGetPack($version)
     if ($LASTEXITCODE) { exit 1 }
 }
 
+function Publish-NuPkg($version)
+{
+    Write-BeginStep $MYINVOCATION
+
+    foreach ($nupkg in Get-ChildItem publish/*.nupkg) {
+        & dotnet nuget push -k $env:NUGET_API_KEY -s https://api.nuget.org/v3/index.json "$nupkg"
+        if($LASTEXITCODE -ne 0) { throw "Publishing failed" }
+    }
+}
+
+function Publish-GitHubRelease($version)
+{
+    Write-BeginStep $MYINVOCATION
+
+    Write-Output "build: Creating release for version $version"
+
+    iex "gh release create v$version --title v$version --generate-notes $(get-item ./publish/*.nupkg)"
+}
+
 function Publish-Container($version)
 {
     Write-BeginStep $MYINVOCATION
@@ -113,11 +131,8 @@ function Publish-Container($version)
     docker tag squiflog-ci:latest datalust/squiflog-ci:$version
     if ($LASTEXITCODE) { exit 1 }
 
-    if ($IsCIBuild)
-    {
-        echo "$env:DOCKER_TOKEN" | docker login -u $env:DOCKER_USER --password-stdin
-        if ($LASTEXITCODE) { exit 1 }
-    }
+    echo "$env:DOCKER_TOKEN" | docker login -u $env:DOCKER_USER --password-stdin
+    if ($LASTEXITCODE) { exit 1 }
 
     docker push datalust/squiflog-ci:$version
     if ($LASTEXITCODE) { exit 1 }
@@ -150,6 +165,7 @@ function Start-SeqEnvironment($protocol) {
     docker run --name squiflog-test-seq `
         --network squiflog-test `
         -e ACCEPT_EULA=Y `
+        -e SEQ_FIRSTRUN_NOAUTHENTICATION=True `
         -itd `
         -p 5342:80 `
         datalust/seq:latest

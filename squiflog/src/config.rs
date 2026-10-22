@@ -49,10 +49,10 @@ pub fn is_seq_app() -> bool {
 fn is_truthy(name: impl AsRef<str>) -> Result<bool, Error> {
     match env::var(name.as_ref()) {
         // The evironment variable contains a truthy value
-        Ok(ref v) if v == "True" || v == "true" => return Ok(true),
+        Ok(ref v) if v == "True" || v == "true" => Ok(true),
         // The environment variable is not set or doesn't contain
         // a truthy value
-        Ok(_) | Err(env::VarError::NotPresent) => return Ok(false),
+        Ok(_) | Err(env::VarError::NotPresent) => Ok(false),
         // The environment variable is invalid
         Err(e) => Err(e)?,
     }
@@ -65,9 +65,9 @@ where
 {
     match env::var(name.as_ref()) {
         // The environment variable exists, but is empty
-        Ok(ref v) if v == "" => return Ok(()),
+        Ok(ref v) if v.is_empty() => Ok(()),
         // The environment variable does not exist
-        Err(env::VarError::NotPresent) => return Ok(()),
+        Err(env::VarError::NotPresent) => Ok(()),
         // The environment variable is invalid
         Err(e) => Err(e)?,
         // The environment variable has a value

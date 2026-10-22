@@ -49,7 +49,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            metrics_interval_ms: 1 * 1000 * 60, // 1 minute
+            metrics_interval_ms: 1000 * 60, // 1 minute
             min_level: Level::Error,
         }
     }
@@ -206,7 +206,7 @@ impl<'a> DiagnosticEvent<'a> {
 
 pub fn emit(message_template: &'static str) {
     if MIN_LEVEL.includes(Level::Debug) {
-        let evt = DiagnosticEvent::new("DEBUG", None, &message_template, None);
+        let evt = DiagnosticEvent::new("DEBUG", None, message_template, None);
         let json = serde_json::to_string(&evt).expect("infallible JSON");
         eprintln!("{}", json);
     }
@@ -215,7 +215,7 @@ pub fn emit(message_template: &'static str) {
 pub fn emit_err(error: &impl Display, message_template: &'static str) {
     if MIN_LEVEL.includes(Level::Error) {
         let err_str = format!("{}", error);
-        let evt = DiagnosticEvent::new("ERROR", Some(&err_str), &message_template, None);
+        let evt = DiagnosticEvent::new("ERROR", Some(&err_str), message_template, None);
         let json = serde_json::to_string(&evt).expect("infallible JSON");
         eprintln!("{}", json);
     }
