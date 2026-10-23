@@ -9,11 +9,8 @@ license = "Apache-2.0"
 serde = "1"
 serde_json = "1"
 serde_derive = "1"
-inlinable_string = "0.1"
-string_cache = "0.8"
 bytes = "1"
 lazy_static = "1.4"
-libflate = "0.1"
 
 [dependencies.chrono]
  version = "0.4"
@@ -21,9 +18,6 @@ libflate = "0.1"
 
 [dependencies.futures]
 version = "0.3"
-
-[dependencies.pin-utils]
-version = "0.1"
 
 [dependencies.tokio]
 version = "1"

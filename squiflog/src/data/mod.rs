@@ -24,14 +24,8 @@ metrics! {
 /**
 Configuration for CLEF formatting.
 */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Config {}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {}
-    }
-}
 
 /**
 Build a CLEF processor to handle messages.
@@ -123,7 +117,7 @@ impl<'a> syslog::Message<'a> {
         }
 
         clef::Message {
-            timestamp: timestamp.unwrap_or_else(|| Utc::now()),
+            timestamp: timestamp.unwrap_or_else(Utc::now),
             level: Some(priority.severity()),
             message,
             message_template: None,
@@ -194,9 +188,7 @@ mod test {
 
         let message = "hello world";
 
-        let mut sd_params = vec![];
-        sd_params.push(("hello", "world".to_owned()));
-        sd_params.push(("event", "value".to_owned()));
+        let sd_params = vec![("hello", "world".to_owned()), ("event", "value".to_owned())];
 
         let syslog = syslog::Message {
             priority: syslog::Priority {
@@ -237,9 +229,10 @@ mod test {
 
         let message = "hello world";
 
-        let mut sd_params = vec![];
-        sd_params.push(("ip", "192.0.2.1".to_owned()));
-        sd_params.push(("ip", "192.0.2.129".to_owned()));
+        let sd_params = vec![
+            ("ip", "192.0.2.1".to_owned()),
+            ("ip", "192.0.2.129".to_owned()),
+        ];
 
         let syslog = syslog::Message {
             priority: syslog::Priority {

@@ -88,6 +88,8 @@ pub struct Message<'a> {
 }
 
 impl<'a> Message<'a> {
+    // `FromStr` can't be implemented here because the message borrows from its input
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &'a str) -> Self {
         Self::from_bytes(s.as_bytes())
     }
@@ -130,14 +132,14 @@ impl<'a> Message<'a> {
             }
         }
 
-        result.message = if unparsed.len() > 0 {
+        result.message = if !unparsed.is_empty() {
             Some(String::from_utf8_lossy(unparsed))
         } else {
             None
         };
 
         if result.timestamp.is_none() {
-            result.timestamp = Some(now.clone())
+            result.timestamp = Some(*now)
         }
 
         result
@@ -214,7 +216,7 @@ impl<'a> Message<'a> {
 
             result.message = if is_utf8 {
                 let trimmed = std::str::from_utf8(message_bytes)?.trim();
-                if trimmed.len() > 0 {
+                if !trimmed.is_empty() {
                     Some(Cow::Borrowed(trimmed))
                 } else {
                     None
@@ -222,7 +224,7 @@ impl<'a> Message<'a> {
             } else {
                 let owned = String::from_utf8_lossy(message_bytes);
                 let trimmed = owned.trim();
-                if trimmed.len() > 0 {
+                if !trimmed.is_empty() {
                     Some(Cow::Owned(trimmed.to_owned()))
                 } else {
                     None
@@ -247,7 +249,7 @@ mod tests {
     impl<'a> StructuredDataElement<'a> {
         fn from_str(s: &'a str) -> Result<Self, Error> {
             let (r, rem) = parsers::structured_data_element(s.as_bytes())?;
-            if rem.len() > 0 {
+            if !rem.is_empty() {
                 Err(err_msg("too much input"))
             } else {
                 Ok(r)
@@ -341,10 +343,11 @@ mod tests {
         // example 3 from https://tools.ietf.org/html/rfc5424
         let input = b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] \xEF\xBB\xBFAn application event log entry...\n";
 
-        let mut sd_params = vec![];
-        sd_params.push(("iut", "3".to_owned()));
-        sd_params.push(("eventSource", "Application".to_owned()));
-        sd_params.push(("eventID", "1011".to_owned()));
+        let sd_params = vec![
+            ("iut", "3".to_owned()),
+            ("eventSource", "Application".to_owned()),
+            ("eventID", "1011".to_owned()),
+        ];
 
         let expected = Message {
             priority: Priority {
@@ -374,13 +377,13 @@ mod tests {
 
         let input = b"<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evntslog - ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"][examplePriority@32473 class=\"high\"]";
 
-        let mut sd_params = vec![];
-        sd_params.push(("iut", "3".to_owned()));
-        sd_params.push(("eventSource", "Application".to_owned()));
-        sd_params.push(("eventID", "1011".to_owned()));
+        let sd_params = vec![
+            ("iut", "3".to_owned()),
+            ("eventSource", "Application".to_owned()),
+            ("eventID", "1011".to_owned()),
+        ];
 
-        let mut sd_params2 = vec![];
-        sd_params2.push(("class", "high".to_owned()));
+        let sd_params2 = vec![("class", "high".to_owned())];
 
         let sd = vec![
             StructuredDataElement {
@@ -439,10 +442,11 @@ mod tests {
     fn structured_data_param_from_string() {
         let input = "[exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"]";
 
-        let mut sd_params = vec![];
-        sd_params.push(("iut", "3".to_owned()));
-        sd_params.push(("eventSource", "Application".to_owned()));
-        sd_params.push(("eventID", "1011".to_owned()));
+        let sd_params = vec![
+            ("iut", "3".to_owned()),
+            ("eventSource", "Application".to_owned()),
+            ("eventID", "1011".to_owned()),
+        ];
 
         let expected = StructuredDataElement {
             id: "exampleSDID@32473",
