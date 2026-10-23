@@ -1,11 +1,20 @@
-param (
-  [string] $shortver = "99.99.99"
-)
+$RequiredRustToolchain = $(cat ./rust-toolchain)
 
-$ErrorActionPreference = "Stop"
+curl https://sh.rustup.rs -sSf | sh -s -- --default-host x86_64-unknown-linux-gnu --default-toolchain $RequiredRustToolchain -y
+
+$env:PATH = "$HOME/.cargo/bin:$env:PATH"
+
+& rustup target add x86_64-unknown-linux-musl
+if ($LASTEXITCODE) { exit 1 }
+
+& rustup target add aarch64-unknown-linux-musl
+if ($LASTEXITCODE) { exit 1 }
+
 Push-Location "$PSScriptRoot/../../"
 
 . "./ci/build-deps.ps1"
+
+$version = Get-SemVer
 
 function Invoke-SmokeTest($protocol, $format) {
     Write-BeginStep $MYINVOCATION
@@ -51,8 +60,8 @@ Build-TestAppContainer
 Invoke-SmokeTest "udp" "rfc5424"
 Invoke-SmokeTest "udp" "rfc3164"
 
-if ($IsPublishedBuild) {
-    Publish-Container (Get-SemVer $shortver)
+if ($env:CI_EVENT -eq "push" -and $env:DOCKER_TOKEN -ne "") {
+    Publish-Container ($version)
 }
 else {
     Write-Output "Not publishing Docker container"

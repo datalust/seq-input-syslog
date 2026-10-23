@@ -32,7 +32,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The processor for converting SYSLOG into CLEF
     let process = {
         let data = data::build(config.data);
-        move |msg: Bytes| data.read_as_clef(&*msg)
+        move |msg: Bytes| data.read_as_clef(&msg)
     };
 
     // The server that drives the receiver and processor
@@ -76,7 +76,7 @@ fn listen_for_stdin_closed(handle: server::Handle) {
 }
 
 fn main() {
-    let run_server: Result<(), Box<dyn std::error::Error>> = catch_unwind(|| run())
+    let run_server: Result<(), Box<dyn std::error::Error>> = catch_unwind(run)
         .map_err(|panic| unwrap_panic(panic).into())
         .and_then(|inner| inner);
 
